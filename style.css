@@ -21,3 +21,6 @@
   flex: 0 0 16px;
   accent-color: #147d75;
 }
+
+/* SIGMA V0.3 — audit des affectations */
+.audit-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:16px 0}.audit-stat{background:#f6f9fc;border:1px solid #dbe5ed;border-radius:9px;padding:13px}.audit-stat b{display:block;font-size:23px}.audit-stat span{color:#61758c;font-size:12px}.pill.audit-error{background:#fbe9e9;color:#9f2727}@media(max-width:800px){.audit-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
