@@ -2,3 +2,6 @@
 
 /* V0.2 : affectations */
 .assign-item{display:flex!important;align-items:center;gap:10px;flex-wrap:wrap;min-height:34px}.assign-item span{flex:1}.assign-item small{color:var(--muted,#64748b)}.assign-item select{min-width:135px;max-width:180px}.assign-item input{width:auto!important}
+
+/* V0.2.1 : gestion explicite des affectations dans le module Référents */
+.access-list{display:flex;flex-direction:column;gap:8px;max-height:48vh;overflow-y:auto;margin-top:14px}.access-item{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid #d8e1ed;border-radius:8px;font-size:13px}.access-item>span{flex:1;min-width:0}.access-item strong,.access-item small{display:block}.access-item small{color:#66778b;margin-top:3px}.access-item select{min-width:150px}.access-item input{flex-shrink:0}@media(max-width:560px){.access-item{flex-wrap:wrap}.access-item select{width:100%}}
