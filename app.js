@@ -1,6 +1,6 @@
-/* SIGMA V0.7 TEST — données fictives uniquement ; ACL Grist obligatoires. */
+/* SIGMA V0.8 TEST — données fictives uniquement ; ACL Grist obligatoires. */
 'use strict';
-const TABLES = ['SIGNALEMENTS','ACADEMIES','STATUTS','MOTIFS','SIGNALEMENT_MOTIFS','UTILISATEURS','HABILITATIONS','PERSONNES','SIGNALEMENT_PERSONNES','ACTIONS','HISTORIQUE_STATUTS','RENDEZ_VOUS','PARTICIPANTS_RDV','DOCUMENTS','VERSIONS_DOCUMENTS'];
+const TABLES = ['SIGNALEMENTS','ACADEMIES','STATUTS','MOTIFS','SIGNALEMENT_MOTIFS','UTILISATEURS','HABILITATIONS','PERSONNES','SIGNALEMENT_PERSONNES','ACTIONS','HISTORIQUE_STATUTS','RENDEZ_VOUS','PARTICIPANTS_RDV','DOCUMENTS','VERSIONS_DOCUMENTS','COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS'];
 const state = {data:{},view:'dashboard',busy:false,dossierSuivi:null,agendaDate:new Date(),agendaMode:'semaine',rdvDossier:null};
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -28,7 +28,7 @@ if(state.view==='audit'){renderAudit();}
 if(state.view==='dossiers'){const search=$('search').value.trim().toLowerCase(),statut=$('filter-status').value,motif=$('filter-motif').value;const filtered=dossiers.filter(r=>(!statut||String(r.Statut)===statut)&&(!motif||idsFor(r.id).includes(Number(motif)))&&(!search||[r.Numero,r.Objet,r.Referent,byId('ACADEMIES',r.Academie)?.Nom,...namesFor(r.id)].join(' ').toLowerCase().includes(search)));$('count').textContent=`${filtered.length} dossier(s)`;$('rows').innerHTML=filtered.slice().sort((a,b)=>b.id-a.id).map(dossierRow).join('')||'<tr><td colspan="8">Aucun résultat.</td></tr>';}}
 function optionList(name,textField){return tab(name).slice().sort((a,b)=>(a.Ordre||0)-(b.Ordre||0)).map(x=>`<option value="${x.id}">${esc(x[textField])}</option>`).join('');}
 function loadSelects(){for(const [el,name,col] of [['academie','ACADEMIES','Nom'],['statut','STATUTS','Libelle']])$(el).innerHTML='<option value="">Sélectionner…</option>'+optionList(name,col);$('filter-status').innerHTML='<option value="">Tous les statuts</option>'+optionList('STATUTS','Libelle');$('filter-motif').innerHTML='<option value="">Tous les motifs</option>'+optionList('MOTIFS','Libelle');$('user-academie').innerHTML='<option value="">Sélectionner…</option>'+optionList('ACADEMIES','Nom');$('motifs').innerHTML=tab('MOTIFS').sort((a,b)=>(a.Ordre||0)-(b.Ordre||0)).map(x=>`<label><input type="checkbox" name="motif" value="${x.id}"> ${esc(x.Libelle)}</label>`).join('');}
-async function refresh(){try{notify('');for(const name of TABLES)state.data[name]=rowsFrom(await grist.docApi.fetchTable(name));loadSelects();fillRdvSelects();fillDocumentSelects();render();}catch(e){notify('Chargement impossible : '+e.message+'. Vérifiez les quinze tables et les autorisations du widget.');}}
+async function refresh(){try{notify('');for(const name of TABLES)state.data[name]=rowsFrom(await grist.docApi.fetchTable(name));loadSelects();fillRdvSelects();fillDocumentSelects();render();}catch(e){notify('Chargement impossible : '+e.message+'. Vérifiez les dix-sept tables et les autorisations du widget.');}}
 function openForm(id){$('record-form').reset();$('record-id').value=id||'';const rec=id?byId('SIGNALEMENTS',id):null;$('modal-title').textContent=rec?'Modifier le signalement':'Nouveau signalement';$('numero').value=rec?.Numero||'(généré à la création)';$('date').value=rec?.Date_Reception?new Date(Number(rec.Date_Reception)*1000).toISOString().slice(0,10):new Date().toISOString().slice(0,10);$('objet').value=rec?.Objet||'';$('academie').value=rec?.Academie||'';$('statut').value=rec?.Statut||'';$('referent').value=rec?.Referent||'';$('resume').value=rec?.Resume||'';const motifs=new Set(rec?idsFor(rec.id):[]);for(const cb of document.querySelectorAll('input[name="motif"]'))cb.checked=motifs.has(Number(cb.value));loadAssignments(rec?.id);$('modal').classList.remove('hidden');$('objet').focus();}
 function closeForm(){$('modal').classList.add('hidden');}
 // V0.5.1 : vérification explicite des écritures dans HISTORIQUE_STATUTS.
@@ -345,7 +345,7 @@ function openDocument(id=null,dossier=null){
   const versions=doc?docVersions(doc.id):[];
   $('document-content').value=versions[0]?.Contenu||'';
   if(doc)renderVersions(doc);else{$('document-versions').classList.add('hidden');$('document-versions-list').innerHTML='';}
-  docEditMode(doc);$('document-modal').classList.remove('hidden');
+  docEditMode(doc);renderDocumentCollaboration(doc);$('document-modal').classList.remove('hidden');
 }
 function closeDocument(){$('document-modal').classList.add('hidden');}
 async function saveDocument(validate=false){
@@ -409,6 +409,93 @@ $('document-modal').addEventListener('click',e=>{if(e.target===$('document-modal
 document.addEventListener('click',e=>{
   const d=e.target.closest('[data-doc-open]');if(d)openDocument(Number(d.dataset.docOpen));
   const v=e.target.closest('[data-doc-version]');if(v)viewDocumentVersion(Number(v.dataset.docVersion));
+});
+
+
+// SIGMA V0.8 — commentaires INTERNES et projets de partage, sans ouverture d'accès externe.
+// Aucune URL ni autorisation Grist n'est créée par ce registre préparatoire.
+const documentComments = docId => tab('COMMENTAIRES_DOCUMENTS').filter(c=>Number(c.Document)===Number(docId)).sort((a,b)=>Number(a.Date_Commentaire)-Number(b.Date_Commentaire)||a.id-b.id);
+const documentShares = docId => tab('PARTAGES_DOCUMENTS').filter(p=>Number(p.Document)===Number(docId)).sort((a,b)=>b.id-a.id);
+function renderDocumentCollaboration(doc){
+  const available=!!doc;
+  $('document-collaboration').classList.toggle('hidden',!available);
+  if(!available)return;
+  $('comment-doc-id').value=doc.id;
+  $('share-doc-id').value=doc.id;
+  const versions=docVersions(doc.id);
+  $('comment-version').innerHTML=versions.map(v=>`<option value="${v.id}" ${Number(v.Numero_Version)===Number(doc.Version_Courante)?'selected':''}>Version ${esc(v.Numero_Version)} — ${esc(v.Statut)}</option>`).join('');
+  const comments=documentComments(doc.id);
+  $('document-comments-list').innerHTML=comments.map(c=>{
+    const version=byId('VERSIONS_DOCUMENTS',c.Version);
+    const resolved=c.Etat==='Résolu';
+    return `<div class="collab-item"><div><strong>${esc(c.Auteur||'Auteur non renseigné')}</strong> <span class="pill ${resolved?'done':'wait'}">${esc(c.Etat||'Actif')}</span><small>${prettyDateTime(c.Date_Commentaire)} · Version ${esc(version?.Numero_Version||'?')}</small><p class="comment-text">${esc(c.Contenu)}</p></div>${resolved?'':`<button type="button" class="row-button" data-comment-resolve="${c.id}">Résoudre</button>`}</div>`;
+  }).join('')||'<p class="muted">Aucun commentaire interne pour ce document.</p>';
+  const shares=documentShares(doc.id);
+  $('document-shares-list').innerHTML=shares.map(p=>`<div class="collab-item"><div><strong>${esc(p.Destinataire)}</strong> <span class="pill ${p.Statut==='Annulé'?'done':'wait'}">${esc(p.Statut)}</span><small>${esc(p.Email)} · ${esc(p.Droit)} · échéance ${dateText(p.Expiration)} · ${prettyDateTime(p.Date_Creation)}</small><p class="comment-text">${esc(p.Message||'Aucun message')}</p></div>${p.Statut==='Projet'?`<button type="button" class="row-button" data-share-cancel="${p.id}">Annuler</button>`:''}</div>`).join('')||'<p class="muted">Aucun projet de partage enregistré.</p>';
+}
+async function reloadDocumentCollaboration(docId){
+  for(const name of ['COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS'])state.data[name]=rowsFrom(await grist.docApi.fetchTable(name));
+  renderDocumentCollaboration(byId('DOCUMENTS',docId));
+}
+async function addDocumentComment(ev){
+  ev.preventDefault();if(state.busy)return;
+  const docId=Number($('comment-doc-id').value),doc=byId('DOCUMENTS',docId);
+  const versionId=Number($('comment-version').value),version=byId('VERSIONS_DOCUMENTS',versionId);
+  const author=$('comment-author').value.trim(),content=$('comment-content').value.trim();
+  if(!doc||!version||Number(version.Document)!==docId||!author||!content)return notify('Commentaire non enregistré : document, version, auteur ou contenu manquant.');
+  if(content.length>3000||author.length>120)return notify('Commentaire trop long.');
+  const btn=$('comment-save');state.busy=true;btn.disabled=true;
+  try{
+    const now=Math.floor(Date.now()/1000);
+    await grist.docApi.applyUserActions([['AddRecord','COMMENTAIRES_DOCUMENTS',null,{Document:docId,Version:versionId,Auteur:author,Contenu:content,Date_Commentaire:now,Etat:'Actif',Interne:1}]]);
+    await reloadDocumentCollaboration(docId);
+    const saved=documentComments(docId).some(c=>Number(c.Version)===versionId&&c.Contenu===content&&c.Auteur===author&&c.Etat==='Actif'&&Number(c.Date_Commentaire)===now);
+    if(!saved)throw new Error('Commentaire non retrouvé après écriture.');
+    $('comment-content').value='';notify('Commentaire interne enregistré et vérifié.',true);
+  }catch(e){notify('Écriture du commentaire incertaine : '+e.message+' Vérifiez la table avant de recommencer.');}
+  finally{state.busy=false;btn.disabled=false;}
+}
+async function prepareDocumentShare(ev){
+  ev.preventDefault();if(state.busy)return;
+  const docId=Number($('share-doc-id').value),doc=byId('DOCUMENTS',docId);
+  const name=$('share-name').value.trim(),email=$('share-email').value.trim().toLowerCase();
+  const right=$('share-right').value,expiry=$('share-expiry').value,message=$('share-message').value.trim();
+  if(!doc||doc.Statut!=='Validé')return notify('Un projet de partage nécessite un document actuellement validé.');
+  if(!name||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||!['lecture','commentaire'].includes(right)||!expiry)return notify('Renseignez le destinataire, une adresse valide, un droit et une échéance.');
+  const expiryTs=Date.parse(expiry+'T00:00:00Z')/1000;
+  if(!Number.isFinite(expiryTs)||expiryTs < Date.now()/1000-86400)return notify('La date d’expiration ne peut pas être passée.');
+  if(name.length>120||email.length>200||message.length>500)return notify('Un champ dépasse sa longueur maximale.');
+  const btn=$('share-save');state.busy=true;btn.disabled=true;
+  try{
+    const now=Math.floor(Date.now()/1000);
+    await grist.docApi.applyUserActions([['AddRecord','PARTAGES_DOCUMENTS',null,{Document:docId,Destinataire:name,Email:email,Droit:right,Expiration:expiryTs,Message:message,Statut:'Projet',Date_Creation:now,Auteur:'Widget SIGMA (non certifié)'}]]);
+    await reloadDocumentCollaboration(docId);
+    if(!documentShares(docId).some(p=>p.Email===email&&p.Statut==='Projet'&&Number(p.Date_Creation)===now))throw new Error('Projet non retrouvé après écriture.');
+    $('share-form').reset();$('share-doc-id').value=docId;
+    notify('Projet de partage enregistré. Aucun accès, courriel ou lien n’a été créé.',true);
+  }catch(e){notify('Enregistrement du projet de partage incertain : '+e.message+' Vérifiez la table avant de recommencer.');}
+  finally{state.busy=false;btn.disabled=false;}
+}
+async function changeCollabStatus(table,id,fields,docId,label){
+  if(state.busy)return;state.busy=true;
+  try{
+    await grist.docApi.applyUserActions([['UpdateRecord',table,id,fields]]);
+    await reloadDocumentCollaboration(docId);
+    const item=byId(table,id);
+    if(!item||Object.entries(fields).some(([k,v])=>item[k]!==v))throw new Error('Statut non retrouvé après écriture.');
+    notify(label,true);
+  }catch(e){notify('Modification incertaine : '+e.message);}
+  finally{state.busy=false;}
+}
+$('comment-form').addEventListener('submit',addDocumentComment);
+$('share-form').addEventListener('submit',prepareDocumentShare);
+document.addEventListener('click',e=>{
+  const c=e.target.closest('[data-comment-resolve]');
+  if(c){const id=Number(c.dataset.commentResolve),item=byId('COMMENTAIRES_DOCUMENTS',id),doc=currentDoc();
+    if(item&&doc&&Number(item.Document)===Number(doc.id)&&confirm('Marquer ce commentaire comme résolu ?'))changeCollabStatus('COMMENTAIRES_DOCUMENTS',id,{Etat:'Résolu'},doc.id,'Commentaire résolu.');}
+  const s=e.target.closest('[data-share-cancel]');
+  if(s){const id=Number(s.dataset.shareCancel),item=byId('PARTAGES_DOCUMENTS',id),doc=currentDoc();
+    if(item&&doc&&Number(item.Document)===Number(doc.id)&&confirm('Annuler ce projet de partage ?'))changeCollabStatus('PARTAGES_DOCUMENTS',id,{Statut:'Annulé'},doc.id,'Projet de partage annulé (aucun accès externe n’existait).');}
 });
 
 for(const el of document.querySelectorAll('.nav'))el.addEventListener('click',()=>show(el.dataset.view));$('add').onclick=()=>openForm();$('close').onclick=closeForm;$('cancel').onclick=closeForm;$('refresh').onclick=refresh;$('all').onclick=()=>show('dossiers');$('record-form').addEventListener('submit',save);for(const id of ['search','filter-status','filter-motif'])$(id).addEventListener(id==='search'?'input':'change',render);$('clear').onclick=()=>{$('search').value='';$('filter-status').value='';$('filter-motif').value='';render();};document.addEventListener('click',ev=>{const button=ev.target.closest('[data-edit]');if(button)openForm(Number(button.dataset.edit));});$('run-audit').onclick=refresh;$('add-user').onclick=()=>editUser();$('user-close').onclick=closeUser;$('user-cancel').onclick=closeUser;$('user-form').addEventListener('submit',saveUser);$('access-form').addEventListener('submit',saveAccess);$('access-close').onclick=closeAccess;$('access-cancel').onclick=closeAccess;document.addEventListener('click',e=>{const b=e.target.closest('[data-access-user]');if(b)openAccess(Number(b.dataset.accessUser));});$('access-modal').addEventListener('click',e=>{if(e.target===$('access-modal'))closeAccess();});document.addEventListener('click',e=>{const b=e.target.closest('[data-user-edit]');if(b)editUser(Number(b.dataset.userEdit));});$('user-modal').addEventListener('click',e=>{if(e.target===$('user-modal'))closeUser();});$('modal').addEventListener('click',ev=>{if(ev.target===$('modal'))closeForm();});document.addEventListener('keydown',ev=>{if(ev.key==='Escape'){closeForm();closeUser();closeAccess();closePersonForm();closeRdv();closeDocument();$('version-modal').classList.add('hidden');}});

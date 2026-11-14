@@ -44,3 +44,8 @@
 .version-entry{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px;border:1px solid #e1e8f0;border-radius:8px;margin:8px 0}
 .version-entry small{display:block;color:#66778b;font-size:12px;margin-top:3px}
 @media(max-width:600px){.version-entry{align-items:stretch;flex-direction:column}}
+
+/* SIGMA V0.8 — collaboration documentaire, uniquement propriétaire dans ce pilote */
+.collab-item{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:12px;margin:8px 0;border:1px solid #dce6ef;border-radius:8px;background:#fafcfe}
+.collab-item>div{min-width:0;flex:1}.collab-item small{display:block;color:#728297;margin-top:5px}.comment-text{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.55}.collab-form{padding:14px;border:1px solid #dce6ef;border-radius:9px;background:#f8fafc;margin:12px 0 20px}.collab-subtitle{padding-top:20px;margin-top:20px;border-top:1px solid #dce6ef}
+@media(max-width:600px){.collab-item{flex-direction:column}}
