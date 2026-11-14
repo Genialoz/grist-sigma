@@ -1,6 +1,6 @@
-/* SIGMA V0.8 TEST — données fictives uniquement ; ACL Grist obligatoires. */
+/* SIGMA V0.9 TEST — données fictives uniquement ; ACL Grist obligatoires. */
 'use strict';
-const TABLES = ['SIGNALEMENTS','ACADEMIES','STATUTS','MOTIFS','SIGNALEMENT_MOTIFS','UTILISATEURS','HABILITATIONS','PERSONNES','SIGNALEMENT_PERSONNES','ACTIONS','HISTORIQUE_STATUTS','RENDEZ_VOUS','PARTICIPANTS_RDV','DOCUMENTS','VERSIONS_DOCUMENTS','COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS'];
+const TABLES = ['SIGNALEMENTS','ACADEMIES','STATUTS','MOTIFS','SIGNALEMENT_MOTIFS','UTILISATEURS','HABILITATIONS','PERSONNES','SIGNALEMENT_PERSONNES','ACTIONS','HISTORIQUE_STATUTS','RENDEZ_VOUS','PARTICIPANTS_RDV','DOCUMENTS','VERSIONS_DOCUMENTS','COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS','HISTORIQUE_PARTAGES'];
 const state = {data:{},view:'dashboard',busy:false,dossierSuivi:null,agendaDate:new Date(),agendaMode:'semaine',rdvDossier:null};
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -28,7 +28,7 @@ if(state.view==='audit'){renderAudit();}
 if(state.view==='dossiers'){const search=$('search').value.trim().toLowerCase(),statut=$('filter-status').value,motif=$('filter-motif').value;const filtered=dossiers.filter(r=>(!statut||String(r.Statut)===statut)&&(!motif||idsFor(r.id).includes(Number(motif)))&&(!search||[r.Numero,r.Objet,r.Referent,byId('ACADEMIES',r.Academie)?.Nom,...namesFor(r.id)].join(' ').toLowerCase().includes(search)));$('count').textContent=`${filtered.length} dossier(s)`;$('rows').innerHTML=filtered.slice().sort((a,b)=>b.id-a.id).map(dossierRow).join('')||'<tr><td colspan="8">Aucun résultat.</td></tr>';}}
 function optionList(name,textField){return tab(name).slice().sort((a,b)=>(a.Ordre||0)-(b.Ordre||0)).map(x=>`<option value="${x.id}">${esc(x[textField])}</option>`).join('');}
 function loadSelects(){for(const [el,name,col] of [['academie','ACADEMIES','Nom'],['statut','STATUTS','Libelle']])$(el).innerHTML='<option value="">Sélectionner…</option>'+optionList(name,col);$('filter-status').innerHTML='<option value="">Tous les statuts</option>'+optionList('STATUTS','Libelle');$('filter-motif').innerHTML='<option value="">Tous les motifs</option>'+optionList('MOTIFS','Libelle');$('user-academie').innerHTML='<option value="">Sélectionner…</option>'+optionList('ACADEMIES','Nom');$('motifs').innerHTML=tab('MOTIFS').sort((a,b)=>(a.Ordre||0)-(b.Ordre||0)).map(x=>`<label><input type="checkbox" name="motif" value="${x.id}"> ${esc(x.Libelle)}</label>`).join('');}
-async function refresh(){try{notify('');for(const name of TABLES)state.data[name]=rowsFrom(await grist.docApi.fetchTable(name));loadSelects();fillRdvSelects();fillDocumentSelects();render();}catch(e){notify('Chargement impossible : '+e.message+'. Vérifiez les dix-sept tables et les autorisations du widget.');}}
+async function refresh(){try{notify('');for(const name of TABLES)state.data[name]=rowsFrom(await grist.docApi.fetchTable(name));loadSelects();fillRdvSelects();fillDocumentSelects();render();}catch(e){notify('Chargement impossible : '+e.message+'. Vérifiez les dix-huit tables et les autorisations du widget.');}}
 function openForm(id){$('record-form').reset();$('record-id').value=id||'';const rec=id?byId('SIGNALEMENTS',id):null;$('modal-title').textContent=rec?'Modifier le signalement':'Nouveau signalement';$('numero').value=rec?.Numero||'(généré à la création)';$('date').value=rec?.Date_Reception?new Date(Number(rec.Date_Reception)*1000).toISOString().slice(0,10):new Date().toISOString().slice(0,10);$('objet').value=rec?.Objet||'';$('academie').value=rec?.Academie||'';$('statut').value=rec?.Statut||'';$('referent').value=rec?.Referent||'';$('resume').value=rec?.Resume||'';const motifs=new Set(rec?idsFor(rec.id):[]);for(const cb of document.querySelectorAll('input[name="motif"]'))cb.checked=motifs.has(Number(cb.value));loadAssignments(rec?.id);$('modal').classList.remove('hidden');$('objet').focus();}
 function closeForm(){$('modal').classList.add('hidden');}
 // V0.5.1 : vérification explicite des écritures dans HISTORIQUE_STATUTS.
@@ -430,11 +430,22 @@ function renderDocumentCollaboration(doc){
     const resolved=c.Etat==='Résolu';
     return `<div class="collab-item"><div><strong>${esc(c.Auteur||'Auteur non renseigné')}</strong> <span class="pill ${resolved?'done':'wait'}">${esc(c.Etat||'Actif')}</span><small>${prettyDateTime(c.Date_Commentaire)} · Version ${esc(version?.Numero_Version||'?')}</small><p class="comment-text">${esc(c.Contenu)}</p></div>${resolved?'':`<button type="button" class="row-button" data-comment-resolve="${c.id}">Résoudre</button>`}</div>`;
   }).join('')||'<p class="muted">Aucun commentaire interne pour ce document.</p>';
+  const shareVersions=versions.filter(v=>v.Statut==='Validé');
+  $('share-version').innerHTML=shareVersions.map(v=>`<option value="${v.id}">Version ${esc(v.Numero_Version)} — validée ${prettyDateTime(v.Date_Version)}</option>`).join('') || '<option value="">Aucune version validée</option>';
+  $('share-save').disabled=doc.Statut!=='Validé'||!shareVersions.length;
   const shares=documentShares(doc.id);
-  $('document-shares-list').innerHTML=shares.map(p=>`<div class="collab-item"><div><strong>${esc(p.Destinataire)}</strong> <span class="pill ${p.Statut==='Annulé'?'done':'wait'}">${esc(p.Statut)}</span><small>${esc(p.Email)} · ${esc(p.Droit)} · échéance ${dateText(p.Expiration)} · ${prettyDateTime(p.Date_Creation)}</small><p class="comment-text">${esc(p.Message||'Aucun message')}</p></div>${p.Statut==='Projet'?`<button type="button" class="row-button" data-share-cancel="${p.id}">Annuler</button>`:''}</div>`).join('')||'<p class="muted">Aucun projet de partage enregistré.</p>';
+  const now=Date.now()/1000;
+  $('document-shares-list').innerHTML=shares.map(p=>{
+    const ver=byId('VERSIONS_DOCUMENTS',p.Version);
+    const expired=Number(p.Expiration)>0 && Number(p.Expiration)+86400<=now;
+    const status=expired&&p.Statut==='Projet'?'Échéance dépassée (projet)':p.Statut;
+    const history=tab('HISTORIQUE_PARTAGES').filter(e=>Number(e.Partage)===Number(p.id)).sort((a,b)=>Number(b.Date_Evenement)-Number(a.Date_Evenement)||b.id-a.id);
+    const actions=p.Statut==='Projet' ? `<button type="button" class="row-button" data-share-review="${p.id}" ${expired||!ver?'disabled':''}>Vérifier</button> <button type="button" class="row-button" data-share-reject="${p.id}">Refuser</button> <button type="button" class="row-button" data-share-cancel="${p.id}">Annuler</button>` : (p.Statut==='Vérifié' ? `<button type="button" class="row-button" data-share-cancel="${p.id}">Révoquer la demande</button>` : '');
+    return `<div class="collab-item"><div><strong>${esc(p.Destinataire)}</strong> <span class="pill ${['Annulé','Refusé'].includes(p.Statut)?'done':'wait'}">${esc(status)}</span><small>${esc(p.Email)} · ${esc(p.Droit)} · ${ver?'Version '+esc(ver.Numero_Version):'Version non spécifiée (ancien projet)'} · échéance ${dateText(p.Expiration)} · ${prettyDateTime(p.Date_Creation)}</small><p class="comment-text">${esc(p.Message||'Aucun message')}</p><p class="muted"><strong>Aucun accès ni lien créé, quel que soit le statut.</strong></p><details class="share-log"><summary>Historique des décisions (${history.length})</summary>${history.map(e=>`<p><small>${prettyDateTime(e.Date_Evenement)} · ${esc(e.Action)} · ${esc(e.Auteur)} — ${esc(e.Motif||'Sans motif')}</small></p>`).join('')||'<p>Aucune décision enregistrée.</p>'}</details></div><div class="share-actions">${actions}</div></div>`;
+  }).join('')||'<p class="muted">Aucune demande de partage enregistrée.</p>';
 }
 async function reloadDocumentCollaboration(docId){
-  for(const name of ['COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS'])state.data[name]=rowsFrom(await grist.docApi.fetchTable(name));
+  for(const name of ['COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS','HISTORIQUE_PARTAGES'])state.data[name]=rowsFrom(await grist.docApi.fetchTable(name));
   renderDocumentCollaboration(byId('DOCUMENTS',docId));
 }
 async function addDocumentComment(ev){
@@ -460,21 +471,52 @@ async function prepareDocumentShare(ev){
   const docId=Number($('share-doc-id').value),doc=byId('DOCUMENTS',docId);
   const name=$('share-name').value.trim(),email=$('share-email').value.trim().toLowerCase();
   const right=$('share-right').value,expiry=$('share-expiry').value,message=$('share-message').value.trim();
+  const versionId=Number($('share-version').value),version=byId('VERSIONS_DOCUMENTS',versionId);
   if(!doc||doc.Statut!=='Validé')return notify('Un projet de partage nécessite un document actuellement validé.');
+  if(!version||Number(version.Document)!==docId||version.Statut!=='Validé')return notify('Choisissez une version validée appartenant à ce compte rendu.');
   if(!name||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||!['lecture','commentaire'].includes(right)||!expiry)return notify('Renseignez le destinataire, une adresse valide, un droit et une échéance.');
   const expiryTs=Date.parse(expiry+'T00:00:00Z')/1000;
-  if(!Number.isFinite(expiryTs)||expiryTs < Date.now()/1000-86400)return notify('La date d’expiration ne peut pas être passée.');
+  if(!Number.isFinite(expiryTs)||expiryTs + 86400<=Date.now()/1000)return notify('La date d’expiration ne peut pas être passée.');
   if(name.length>120||email.length>200||message.length>500)return notify('Un champ dépasse sa longueur maximale.');
   const btn=$('share-save');state.busy=true;btn.disabled=true;
   try{
     const now=Math.floor(Date.now()/1000);
-    await grist.docApi.applyUserActions([['AddRecord','PARTAGES_DOCUMENTS',null,{Document:docId,Destinataire:name,Email:email,Droit:right,Expiration:expiryTs,Message:message,Statut:'Projet',Date_Creation:now,Auteur:'Widget SIGMA (non certifié)'}]]);
+    await grist.docApi.applyUserActions([['AddRecord','PARTAGES_DOCUMENTS',null,{Document:docId,Version:versionId,Destinataire:name,Email:email,Droit:right,Expiration:expiryTs,Message:message,Statut:'Projet',Date_Creation:now,Auteur:'Widget SIGMA (non certifié)'}]]);
     await reloadDocumentCollaboration(docId);
     if(!documentShares(docId).some(p=>p.Email===email&&p.Statut==='Projet'&&Number(p.Date_Creation)===now))throw new Error('Projet non retrouvé après écriture.');
     $('share-form').reset();$('share-doc-id').value=docId;
     notify('Projet de partage enregistré. Aucun accès, courriel ou lien n’a été créé.',true);
   }catch(e){notify('Enregistrement du projet de partage incertain : '+e.message+' Vérifiez la table avant de recommencer.');}
   finally{state.busy=false;btn.disabled=false;}
+}
+// V0.9 : décision interne journalisée. Il n'existe toujours PAS de droit externe.
+async function decideShare(id,nextStatus,reason){
+  if(state.busy)return;
+  const share=byId('PARTAGES_DOCUMENTS',id),doc=currentDoc();
+  if(!share||!doc||Number(share.Document)!==Number(doc.id))return notify('Demande de partage introuvable.');
+  if(!['Projet','Vérifié'].includes(share.Statut))return notify('Demande déjà clôturée.');
+  if(nextStatus==='Vérifié'){
+    const version=byId('VERSIONS_DOCUMENTS',share.Version);
+    if(share.Statut!=='Projet'||!version||Number(version.Document)!==Number(doc.id)||version.Statut!=='Validé'||doc.Statut!=='Validé')return notify('Vérification impossible : document/version non validé ou ancienne demande sans version.');
+    if(Number(share.Expiration)+86400<=Date.now()/1000)return notify('Échéance dépassée : annulez et recréez une demande.');
+  }
+  if(nextStatus==='Refusé'&&share.Statut!=='Projet')return notify('Seuls les projets peuvent être refusés.');
+  if(nextStatus==='Annulé'&&!['Projet','Vérifié'].includes(share.Statut))return notify('Annulation impossible.');
+  if(!reason||!reason.trim())return notify('Une justification est nécessaire.');
+  const now=Math.floor(Date.now()/1000),author='Widget SIGMA (identité non certifiée)';
+  state.busy=true;
+  try{
+    await grist.docApi.applyUserActions([
+      ['UpdateRecord','PARTAGES_DOCUMENTS',id,{Statut:nextStatus}],
+      ['AddRecord','HISTORIQUE_PARTAGES',null,{Partage:id,Action:nextStatus,Statut_Avant:share.Statut,Date_Evenement:now,Auteur:author,Motif:reason.trim().slice(0,500)}]
+    ]);
+    await reloadDocumentCollaboration(doc.id);
+    const updated=byId('PARTAGES_DOCUMENTS',id);
+    const logged=tab('HISTORIQUE_PARTAGES').some(e=>Number(e.Partage)===id&&e.Action===nextStatus&&Number(e.Date_Evenement)===now);
+    if(updated?.Statut!==nextStatus||!logged)throw new Error('Mise à jour ou historique non retrouvé après écriture.');
+    notify('Décision enregistrée et journalisée. Aucun droit ni accès externe créé.',true);
+  }catch(e){notify('Décision non confirmée : '+e.message+' Vérifiez les deux tables avant de réessayer.');}
+  finally{state.busy=false;}
 }
 async function changeCollabStatus(table,id,fields,docId,label){
   if(state.busy)return;state.busy=true;
@@ -493,9 +535,12 @@ document.addEventListener('click',e=>{
   const c=e.target.closest('[data-comment-resolve]');
   if(c){const id=Number(c.dataset.commentResolve),item=byId('COMMENTAIRES_DOCUMENTS',id),doc=currentDoc();
     if(item&&doc&&Number(item.Document)===Number(doc.id)&&confirm('Marquer ce commentaire comme résolu ?'))changeCollabStatus('COMMENTAIRES_DOCUMENTS',id,{Etat:'Résolu'},doc.id,'Commentaire résolu.');}
-  const s=e.target.closest('[data-share-cancel]');
-  if(s){const id=Number(s.dataset.shareCancel),item=byId('PARTAGES_DOCUMENTS',id),doc=currentDoc();
-    if(item&&doc&&Number(item.Document)===Number(doc.id)&&confirm('Annuler ce projet de partage ?'))changeCollabStatus('PARTAGES_DOCUMENTS',id,{Statut:'Annulé'},doc.id,'Projet de partage annulé (aucun accès externe n’existait).');}
+  for(const [selector,status] of [['[data-share-review]','Vérifié'],['[data-share-reject]','Refusé'],['[data-share-cancel]','Annulé']]){
+    const b=e.target.closest(selector);if(!b)continue;
+    const id=Number(b.dataset.shareReview||b.dataset.shareReject||b.dataset.shareCancel);
+    const reason=prompt(status==='Vérifié'?'Justification de la vérification interne (aucun accès accordé) :':status==='Refusé'?'Motif du refus :':'Motif de l’annulation ou de la révocation de la demande :');
+    if(reason!==null)decideShare(id,status,reason);break;
+  }
 });
 
 for(const el of document.querySelectorAll('.nav'))el.addEventListener('click',()=>show(el.dataset.view));$('add').onclick=()=>openForm();$('close').onclick=closeForm;$('cancel').onclick=closeForm;$('refresh').onclick=refresh;$('all').onclick=()=>show('dossiers');$('record-form').addEventListener('submit',save);for(const id of ['search','filter-status','filter-motif'])$(id).addEventListener(id==='search'?'input':'change',render);$('clear').onclick=()=>{$('search').value='';$('filter-status').value='';$('filter-motif').value='';render();};document.addEventListener('click',ev=>{const button=ev.target.closest('[data-edit]');if(button)openForm(Number(button.dataset.edit));});$('run-audit').onclick=refresh;$('add-user').onclick=()=>editUser();$('user-close').onclick=closeUser;$('user-cancel').onclick=closeUser;$('user-form').addEventListener('submit',saveUser);$('access-form').addEventListener('submit',saveAccess);$('access-close').onclick=closeAccess;$('access-cancel').onclick=closeAccess;document.addEventListener('click',e=>{const b=e.target.closest('[data-access-user]');if(b)openAccess(Number(b.dataset.accessUser));});$('access-modal').addEventListener('click',e=>{if(e.target===$('access-modal'))closeAccess();});document.addEventListener('click',e=>{const b=e.target.closest('[data-user-edit]');if(b)editUser(Number(b.dataset.userEdit));});$('user-modal').addEventListener('click',e=>{if(e.target===$('user-modal'))closeUser();});$('modal').addEventListener('click',ev=>{if(ev.target===$('modal'))closeForm();});document.addEventListener('keydown',ev=>{if(ev.key==='Escape'){closeForm();closeUser();closeAccess();closePersonForm();closeRdv();closeDocument();$('version-modal').classList.add('hidden');}});
