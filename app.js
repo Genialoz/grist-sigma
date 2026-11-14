@@ -1,4 +1,4 @@
-/* SIGMA V0.5 TEST — données fictives uniquement ; ACL Grist obligatoires. */
+/* SIGMA V0.5.1 TEST — données fictives uniquement ; ACL Grist obligatoires. */
 'use strict';
 const TABLES = ['SIGNALEMENTS','ACADEMIES','STATUTS','MOTIFS','SIGNALEMENT_MOTIFS','UTILISATEURS','HABILITATIONS','PERSONNES','SIGNALEMENT_PERSONNES','ACTIONS','HISTORIQUE_STATUTS'];
 const state = {data:{},view:'dashboard',busy:false,dossierSuivi:null};
@@ -29,8 +29,100 @@ function loadSelects(){for(const [el,name,col] of [['academie','ACADEMIES','Nom'
 async function refresh(){try{notify('');for(const name of TABLES)state.data[name]=rowsFrom(await grist.docApi.fetchTable(name));loadSelects();render();}catch(e){notify('Chargement impossible : '+e.message+'. Vérifiez les onze tables et les autorisations du widget.');}}
 function openForm(id){$('record-form').reset();$('record-id').value=id||'';const rec=id?byId('SIGNALEMENTS',id):null;$('modal-title').textContent=rec?'Modifier le signalement':'Nouveau signalement';$('numero').value=rec?.Numero||'(généré à la création)';$('date').value=rec?.Date_Reception?new Date(Number(rec.Date_Reception)*1000).toISOString().slice(0,10):new Date().toISOString().slice(0,10);$('objet').value=rec?.Objet||'';$('academie').value=rec?.Academie||'';$('statut').value=rec?.Statut||'';$('referent').value=rec?.Referent||'';$('resume').value=rec?.Resume||'';const motifs=new Set(rec?idsFor(rec.id):[]);for(const cb of document.querySelectorAll('input[name="motif"]'))cb.checked=motifs.has(Number(cb.value));loadAssignments(rec?.id);$('modal').classList.remove('hidden');$('objet').focus();}
 function closeForm(){$('modal').classList.add('hidden');}
-async function save(ev){ev.preventDefault();if(state.busy)return;const id=Number($('record-id').value)||null;const chosen=[...document.querySelectorAll('input[name="motif"]:checked')].map(c=>Number(c.value));if(!chosen.length){notify('Choisissez au moins un motif.');return;}const ts=Date.parse($('date').value+'T00:00:00Z')/1000;const fields={Objet:$('objet').value.trim(),Academie:Number($('academie').value),Statut:Number($('statut').value),Date_Reception:ts,Referent:$('referent').value.trim(),Resume:$('resume').value.trim()};if(!fields.Objet||!fields.Academie||!fields.Statut||!Number.isFinite(ts)){notify('Complétez les champs obligatoires.');return;}state.busy=true;$('save').disabled=true;try{if(id){const previous=byId('SIGNALEMENTS',id);const changes=[['UpdateRecord','SIGNALEMENTS',id,fields]];if(previous && Number(previous.Statut)!==Number(fields.Statut))changes.push(['AddRecord','HISTORIQUE_STATUTS',null,{Signalement:id,Statut_Avant:Number(previous.Statut)||null,Statut_Apres:fields.Statut,Date_Changement:Math.floor(Date.now()/1000),Auteur:'Widget SIGMA (identité non certifiée)',Commentaire:'Changement de statut via le formulaire'}]);await grist.docApi.applyUserActions(changes);}else{const year=$('date').value.slice(0,4);const unique=globalThis.crypto?.randomUUID?.()||`${Date.now()}-${Math.floor(Math.random()*1e9)}`;fields.Numero=`VDH-${year}-${unique.slice(0,8).toUpperCase()}`;fields.Annee_Ouverture=Number(year);fields.Date_Creation=Math.floor(Date.now()/1000);await grist.docApi.applyUserActions([['AddRecord','SIGNALEMENTS',null,fields]]);const all=rowsFrom(await grist.docApi.fetchTable('SIGNALEMENTS'));const created=all.find(r=>r.Numero===fields.Numero);if(!created)throw new Error('Dossier créé, mais identifiant introuvable : actualisez et vérifiez les motifs.');}
-const all=rowsFrom(await grist.docApi.fetchTable('SIGNALEMENTS'));const target=id||all.find(r=>r.Numero===fields.Numero)?.id;if(!target)throw new Error('Impossible de retrouver le dossier.');const links=rowsFrom(await grist.docApi.fetchTable('SIGNALEMENT_MOTIFS')).filter(r=>Number(r.Signalement)===Number(target));const existing=new Set(links.map(r=>Number(r.Motif)));const wanted=new Set(chosen);const actions=[...links.filter(r=>!wanted.has(Number(r.Motif))).map(r=>['RemoveRecord','SIGNALEMENT_MOTIFS',r.id]),...chosen.filter(x=>!existing.has(x)).map(motif=>['AddRecord','SIGNALEMENT_MOTIFS',null,{Signalement:Number(target),Motif:motif}])];if(!id)actions.push(['AddRecord','HISTORIQUE_STATUTS',null,{Signalement:Number(target),Statut_Apres:fields.Statut,Date_Changement:Math.floor(Date.now()/1000),Auteur:'Widget SIGMA (identité non certifiée)',Commentaire:'Création du signalement'}]);if(actions.length)await grist.docApi.applyUserActions(actions);await saveAssignments(target);closeForm();await refresh();notify('Signalement enregistré dans Grist.',true);show('dossiers');}catch(e){notify('Échec ou enregistrement partiel : '+e.message+'. Vérifiez les données dans Grist avant de réessayer.');}finally{state.busy=false;$('save').disabled=false;}}
+// V0.5.1 : vérification explicite des écritures dans HISTORIQUE_STATUTS.
+// Le journal concerne les opérations du formulaire SIGMA, pas les modifications faites dans les tables Grist.
+async function verifyHistoryEntry(dossierId, statutApres, ancienStatut, isCreation) {
+  const records = rowsFrom(await grist.docApi.fetchTable('HISTORIQUE_STATUTS'));
+  const matches = records.filter(h =>
+    Number(h.Signalement) === Number(dossierId) &&
+    Number(h.Statut_Apres) === Number(statutApres) &&
+    (isCreation ? !h.Statut_Avant : Number(h.Statut_Avant) === Number(ancienStatut))
+  );
+  if (!matches.length) {
+    throw new Error('Le dossier a été enregistré mais aucune ligne correspondante n’a été retrouvée dans HISTORIQUE_STATUTS. Vérifiez les références Signalement/Statut_Apres et les permissions d’écriture.');
+  }
+}
+async function save(ev) {
+  ev.preventDefault();
+  if (state.busy) return;
+  const id = Number($('record-id').value) || null;
+  const chosen = [...document.querySelectorAll('input[name="motif"]:checked')].map(c => Number(c.value));
+  if (!chosen.length) { notify('Choisissez au moins un motif.'); return; }
+  const ts = Date.parse($('date').value + 'T00:00:00Z') / 1000;
+  const fields = {
+    Objet: $('objet').value.trim(), Academie: Number($('academie').value),
+    Statut: Number($('statut').value), Date_Reception: ts,
+    Referent: $('referent').value.trim(), Resume: $('resume').value.trim()
+  };
+  if (!fields.Objet || !fields.Academie || !fields.Statut || !Number.isFinite(ts)) {
+    notify('Complétez les champs obligatoires.'); return;
+  }
+  state.busy = true;
+  $('save').disabled = true;
+  try {
+    const previous = id ? byId('SIGNALEMENTS', id) : null;
+    if (id && !previous) throw new Error('Signalement introuvable dans les données chargées. Actualisez SIGMA.');
+    const changed = !!id && Number(previous.Statut) !== Number(fields.Statut);
+    let target = id;
+    if (id) {
+      const changes = [['UpdateRecord', 'SIGNALEMENTS', id, fields]];
+      if (changed) {
+        changes.push(['AddRecord', 'HISTORIQUE_STATUTS', null, {
+          Signalement: id, Statut_Avant: Number(previous.Statut) || null,
+          Statut_Apres: fields.Statut, Date_Changement: Math.floor(Date.now() / 1000),
+          Auteur: 'Widget SIGMA (identité non certifiée)',
+          Commentaire: 'Changement de statut via le formulaire'
+        }]);
+      }
+      await grist.docApi.applyUserActions(changes);
+    } else {
+      const year = $('date').value.slice(0, 4);
+      const unique = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.floor(Math.random()*1e9)}`;
+      fields.Numero = `VDH-${year}-${unique.slice(0, 8).toUpperCase()}`;
+      fields.Annee_Ouverture = Number(year);
+      fields.Date_Creation = Math.floor(Date.now()/1000);
+      await grist.docApi.applyUserActions([['AddRecord','SIGNALEMENTS',null,fields]]);
+      const all = rowsFrom(await grist.docApi.fetchTable('SIGNALEMENTS'));
+      target = all.find(r => r.Numero === fields.Numero)?.id;
+      if (!target) throw new Error('Dossier créé, mais identifiant introuvable : actualisez et vérifiez les motifs.');
+    }
+    const links = rowsFrom(await grist.docApi.fetchTable('SIGNALEMENT_MOTIFS'))
+      .filter(r => Number(r.Signalement) === Number(target));
+    const existing = new Set(links.map(r => Number(r.Motif)));
+    const wanted = new Set(chosen);
+    const actions = [
+      ...links.filter(r => !wanted.has(Number(r.Motif)))
+        .map(r => ['RemoveRecord','SIGNALEMENT_MOTIFS',r.id]),
+      ...chosen.filter(x => !existing.has(x))
+        .map(motif => ['AddRecord','SIGNALEMENT_MOTIFS',null,{Signalement:Number(target),Motif:motif}])
+    ];
+    if (!id) {
+      actions.push(['AddRecord','HISTORIQUE_STATUTS',null,{
+        Signalement:Number(target), Statut_Apres:fields.Statut,
+        Date_Changement:Math.floor(Date.now()/1000),
+        Auteur:'Widget SIGMA (identité non certifiée)',
+        Commentaire:'Création du signalement'
+      }]);
+    }
+    if (actions.length) await grist.docApi.applyUserActions(actions);
+    // Lire à nouveau la table : ne jamais annoncer un historique enregistré sans contrôle.
+    if (!id || changed) {
+      await verifyHistoryEntry(target, fields.Statut, previous?.Statut, !id);
+    }
+    await saveAssignments(target);
+    closeForm();
+    await refresh();
+    notify(!id ? 'Dossier créé et historique vérifié dans Grist.' :
+      changed ? 'Statut modifié et historique vérifié dans Grist.' :
+      'Dossier enregistré (statut inchangé : aucune nouvelle ligne d’historique).', true);
+    show('dossiers');
+  } catch (e) {
+    notify('Échec ou enregistrement partiel : ' + e.message + ' Vérifiez les tables Grist avant de réessayer.');
+  } finally {
+    state.busy = false;
+    $('save').disabled = false;
+  }
+}
 // Référents : écriture dans les tables métier. Les ACL se configurent séparément dans Grist.
 function activeUsers(){return tab('UTILISATEURS').filter(u=>Number(u.Actif)!==0);}
 function labelUser(id){const u=byId('UTILISATEURS',id);return u ? (u.Libelle||u.Email) : 'Utilisateur inconnu';}
