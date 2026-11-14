@@ -1,7 +1,7 @@
-/* SIGMA V0.5.1 TEST — données fictives uniquement ; ACL Grist obligatoires. */
+/* SIGMA V0.6 TEST — données fictives uniquement ; ACL Grist obligatoires. */
 'use strict';
-const TABLES = ['SIGNALEMENTS','ACADEMIES','STATUTS','MOTIFS','SIGNALEMENT_MOTIFS','UTILISATEURS','HABILITATIONS','PERSONNES','SIGNALEMENT_PERSONNES','ACTIONS','HISTORIQUE_STATUTS'];
-const state = {data:{},view:'dashboard',busy:false,dossierSuivi:null};
+const TABLES = ['SIGNALEMENTS','ACADEMIES','STATUTS','MOTIFS','SIGNALEMENT_MOTIFS','UTILISATEURS','HABILITATIONS','PERSONNES','SIGNALEMENT_PERSONNES','ACTIONS','HISTORIQUE_STATUTS','RENDEZ_VOUS','PARTICIPANTS_RDV'];
+const state = {data:{},view:'dashboard',busy:false,dossierSuivi:null,agendaDate:new Date(),agendaMode:'semaine',rdvDossier:null};
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const rowsFrom = raw => {
@@ -14,7 +14,7 @@ const byId = (name,id) => tab(name).find(r=>Number(r.id)===Number(id));
 const idsFor = dossierId => tab('SIGNALEMENT_MOTIFS').filter(r=>Number(r.Signalement)===Number(dossierId)).map(r=>Number(r.Motif));
 const namesFor = dossierId => idsFor(dossierId).map(id=>byId('MOTIFS',id)?.Libelle).filter(Boolean);
 function notify(message,ok=false){$('notice').textContent=message;$('notice').className=ok?'ok':'';}
-function show(view){state.view=view;for(const el of document.querySelectorAll('.view'))el.classList.toggle('hidden',el.id!==view);for(const el of document.querySelectorAll('.nav'))el.classList.toggle('active',el.dataset.view===view);$('page-title').textContent={dashboard:'Tableau de bord',dossiers:'Signalements',users:'Référents',audit:'Contrôle des accès',suivi:'Suivi du signalement',settings:'Informations'}[view];render();}
+function show(view){state.view=view;for(const el of document.querySelectorAll('.view'))el.classList.toggle('hidden',el.id!==view);for(const el of document.querySelectorAll('.nav'))el.classList.toggle('active',el.dataset.view===view);$('page-title').textContent={dashboard:'Tableau de bord',dossiers:'Signalements',users:'Référents',audit:'Contrôle des accès',suivi:'Suivi du signalement',agenda:'Agenda et rendez-vous',settings:'Informations'}[view];render();}
 const dateText=v=>{if(!v)return '—';if(typeof v==='number')return new Date(v*1000).toLocaleDateString('fr-FR',{timeZone:'UTC'});return esc(String(v).slice(0,10));};
 function statusName(id){return byId('STATUTS',id)?.Libelle || 'Non renseigné';}
 function statusBadge(name){return `<span class="pill ${name==='Clôturé'?'done':name==='En attente'?'wait':''}">${esc(name)}</span>`;}
@@ -22,11 +22,12 @@ function dossierRow(r){return `<tr><td><strong>${esc(r.Numero||'—')}</strong><
 function render(){const dossiers=tab('SIGNALEMENTS');if(state.view==='dashboard'){$('metrics').innerHTML=[['Total des dossiers',dossiers.length],['En cours',dossiers.filter(r=>statusName(r.Statut)==='En cours de traitement').length],['À qualifier',dossiers.filter(r=>statusName(r.Statut)==='À qualifier').length],['Clôturés',dossiers.filter(r=>statusName(r.Statut)==='Clôturé').length]].map(([label,n])=>`<div class="metric"><span>${esc(label)}</span><b>${n}</b></div>`).join('');$('recent').innerHTML=`<div class="table-wrap"><table><thead><tr><th>Numéro</th><th>Objet</th><th>Académie</th><th>Motifs</th><th>Statut</th><th>Ouverture</th><th></th></tr></thead><tbody>${dossiers.slice().sort((a,b)=>b.id-a.id).slice(0,8).map(dossierRow).join('')||'<tr><td colspan="8">Aucun dossier.</td></tr>'}</tbody></table></div>`;}
 if(state.view==='users'){renderUsers();}
 if(state.view==='suivi'){renderSuivi();}
+if(state.view==='agenda'){renderAgenda();}
 if(state.view==='audit'){renderAudit();}
 if(state.view==='dossiers'){const search=$('search').value.trim().toLowerCase(),statut=$('filter-status').value,motif=$('filter-motif').value;const filtered=dossiers.filter(r=>(!statut||String(r.Statut)===statut)&&(!motif||idsFor(r.id).includes(Number(motif)))&&(!search||[r.Numero,r.Objet,r.Referent,byId('ACADEMIES',r.Academie)?.Nom,...namesFor(r.id)].join(' ').toLowerCase().includes(search)));$('count').textContent=`${filtered.length} dossier(s)`;$('rows').innerHTML=filtered.slice().sort((a,b)=>b.id-a.id).map(dossierRow).join('')||'<tr><td colspan="8">Aucun résultat.</td></tr>';}}
 function optionList(name,textField){return tab(name).slice().sort((a,b)=>(a.Ordre||0)-(b.Ordre||0)).map(x=>`<option value="${x.id}">${esc(x[textField])}</option>`).join('');}
 function loadSelects(){for(const [el,name,col] of [['academie','ACADEMIES','Nom'],['statut','STATUTS','Libelle']])$(el).innerHTML='<option value="">Sélectionner…</option>'+optionList(name,col);$('filter-status').innerHTML='<option value="">Tous les statuts</option>'+optionList('STATUTS','Libelle');$('filter-motif').innerHTML='<option value="">Tous les motifs</option>'+optionList('MOTIFS','Libelle');$('user-academie').innerHTML='<option value="">Sélectionner…</option>'+optionList('ACADEMIES','Nom');$('motifs').innerHTML=tab('MOTIFS').sort((a,b)=>(a.Ordre||0)-(b.Ordre||0)).map(x=>`<label><input type="checkbox" name="motif" value="${x.id}"> ${esc(x.Libelle)}</label>`).join('');}
-async function refresh(){try{notify('');for(const name of TABLES)state.data[name]=rowsFrom(await grist.docApi.fetchTable(name));loadSelects();render();}catch(e){notify('Chargement impossible : '+e.message+'. Vérifiez les onze tables et les autorisations du widget.');}}
+async function refresh(){try{notify('');for(const name of TABLES)state.data[name]=rowsFrom(await grist.docApi.fetchTable(name));loadSelects();fillRdvSelects();render();}catch(e){notify('Chargement impossible : '+e.message+'. Vérifiez les treize tables et les autorisations du widget.');}}
 function openForm(id){$('record-form').reset();$('record-id').value=id||'';const rec=id?byId('SIGNALEMENTS',id):null;$('modal-title').textContent=rec?'Modifier le signalement':'Nouveau signalement';$('numero').value=rec?.Numero||'(généré à la création)';$('date').value=rec?.Date_Reception?new Date(Number(rec.Date_Reception)*1000).toISOString().slice(0,10):new Date().toISOString().slice(0,10);$('objet').value=rec?.Objet||'';$('academie').value=rec?.Academie||'';$('statut').value=rec?.Statut||'';$('referent').value=rec?.Referent||'';$('resume').value=rec?.Resume||'';const motifs=new Set(rec?idsFor(rec.id):[]);for(const cb of document.querySelectorAll('input[name="motif"]'))cb.checked=motifs.has(Number(cb.value));loadAssignments(rec?.id);$('modal').classList.remove('hidden');$('objet').focus();}
 function closeForm(){$('modal').classList.add('hidden');}
 // V0.5.1 : vérification explicite des écritures dans HISTORIQUE_STATUTS.
@@ -191,6 +192,7 @@ function renderSuivi(){const d=byId('SIGNALEMENTS',state.dossierSuivi);if(!d){$(
  $('suivi-personnes').innerHTML=dossierLinks().map(l=>{const person=byId('PERSONNES',l.Personne);return `<tr><td>${esc(person?.Libelle||'—')}</td><td>${esc(l.Role)}</td><td>${esc(person?.Categorie||'—')}</td><td><button type="button" class="row-button" data-detach="${l.id}">Retirer du dossier</button></td></tr>`;}).join('')||'<tr><td colspan="4">Aucune personne associée.</td></tr>';
  $('suivi-actions').innerHTML=dossierActions().map(a=>`<tr><td>${dateText(a.Date_Action)}</td><td>${esc(a.Type_Action)}</td><td>${esc(a.Description)}</td><td>${esc(a.Etat)}</td></tr>`).join('')||'<tr><td colspan="4">Aucune action enregistrée.</td></tr>';
  $('suivi-historique').innerHTML=dossierHistory().map(a=>`<tr><td>${dateText(a.Date_Changement)}</td><td>${esc(statusName(a.Statut_Avant))}</td><td>${esc(statusName(a.Statut_Apres))}</td><td>${esc(a.Commentaire||'—')}</td></tr>`).join('')||'<tr><td colspan="4">Aucun changement tracé depuis l’installation de la V0.5.</td></tr>';
+ renderDossierRdv();
  $('suivi-existing-person').innerHTML='<option value="">Choisir une personne existante…</option>'+tab('PERSONNES').map(x=>`<option value="${x.id}">${esc(x.Libelle)}</option>`).join('');
 }
 function openPersonForm(){$('person-form').reset();$('person-role').innerHTML=roleOptions.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');$('person-modal').classList.remove('hidden');}
@@ -205,5 +207,92 @@ async function detachPerson(id){if(!confirm('Retirer cette association du dossie
 async function saveAction(e){e.preventDefault();if(state.busy)return;const dossier=Number(state.dossierSuivi);const desc=$('action-description').value.trim();const date=$('action-date').value;const ts=Date.parse(date+'T00:00:00Z')/1000;if(!desc||!Number.isFinite(ts))return notify('Renseigne une date et une description.');const fields={Signalement:dossier,Date_Action:ts,Type_Action:$('action-type').value,Description:desc,Etat:$('action-etat').value};state.busy=true;$('action-save').disabled=true;try{await grist.docApi.applyUserActions([['AddRecord','ACTIONS',null,fields]]);$('action-form').reset();$('action-date').value=new Date().toISOString().slice(0,10);await refresh();notify('Action ajoutée au suivi.',true);}catch(err){notify('Enregistrement de l’action impossible : '+err.message);}finally{state.busy=false;$('action-save').disabled=false;}}
 $('suivi-back').onclick=()=>show('dossiers');$('suivi-add-person').onclick=openPersonForm;$('person-close').onclick=closePersonForm;$('person-cancel').onclick=closePersonForm;$('person-form').addEventListener('submit',savePerson);$('existing-person-form').addEventListener('submit',linkPerson);$('action-form').addEventListener('submit',saveAction);$('action-type').innerHTML=typeActions.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');$('action-date').value=new Date().toISOString().slice(0,10);$('suivi-existing-role').innerHTML=roleOptions.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');document.addEventListener('click',e=>{const open=e.target.closest('[data-suivi]');if(open)openSuivi(Number(open.dataset.suivi));const detach=e.target.closest('[data-detach]');if(detach)detachPerson(Number(detach.dataset.detach));});$('person-modal').addEventListener('click',e=>{if(e.target===$('person-modal'))closePersonForm();});
 
-for(const el of document.querySelectorAll('.nav'))el.addEventListener('click',()=>show(el.dataset.view));$('add').onclick=()=>openForm();$('close').onclick=closeForm;$('cancel').onclick=closeForm;$('refresh').onclick=refresh;$('all').onclick=()=>show('dossiers');$('record-form').addEventListener('submit',save);for(const id of ['search','filter-status','filter-motif'])$(id).addEventListener(id==='search'?'input':'change',render);$('clear').onclick=()=>{$('search').value='';$('filter-status').value='';$('filter-motif').value='';render();};document.addEventListener('click',ev=>{const button=ev.target.closest('[data-edit]');if(button)openForm(Number(button.dataset.edit));});$('run-audit').onclick=refresh;$('add-user').onclick=()=>editUser();$('user-close').onclick=closeUser;$('user-cancel').onclick=closeUser;$('user-form').addEventListener('submit',saveUser);$('access-form').addEventListener('submit',saveAccess);$('access-close').onclick=closeAccess;$('access-cancel').onclick=closeAccess;document.addEventListener('click',e=>{const b=e.target.closest('[data-access-user]');if(b)openAccess(Number(b.dataset.accessUser));});$('access-modal').addEventListener('click',e=>{if(e.target===$('access-modal'))closeAccess();});document.addEventListener('click',e=>{const b=e.target.closest('[data-user-edit]');if(b)editUser(Number(b.dataset.userEdit));});$('user-modal').addEventListener('click',e=>{if(e.target===$('user-modal'))closeUser();});$('modal').addEventListener('click',ev=>{if(ev.target===$('modal'))closeForm();});document.addEventListener('keydown',ev=>{if(ev.key==='Escape'){closeForm();closeUser();closeAccess();closePersonForm();}});
+
+// V0.6 — agenda administrateur, données fictives uniquement. Stockage des horodatages en secondes Unix.
+const RDV_TYPES = ['Entretien','Réunion','Échange téléphonique','Visioconférence','Échéance','Relance','Autre'];
+const RDV_STATUTS = ['Prévu','Confirmé','Reporté','Réalisé','Annulé'];
+const two = n => String(n).padStart(2,'0');
+function localDateTime(ts){if(!ts)return '';const d=new Date(Number(ts)*1000);return `${d.getFullYear()}-${two(d.getMonth()+1)}-${two(d.getDate())}T${two(d.getHours())}:${two(d.getMinutes())}`;}
+function prettyDateTime(ts){if(!ts)return '—';return new Date(Number(ts)*1000).toLocaleString('fr-FR',{dateStyle:'short',timeStyle:'short'});}
+function safeDay(d){return new Date(d.getFullYear(),d.getMonth(),d.getDate());}
+function agendaBounds(){const anchor=safeDay(state.agendaDate);let begin,end;
+ if(state.agendaMode==='jour'){begin=anchor;end=new Date(anchor);end.setDate(end.getDate()+1);}
+ else if(state.agendaMode==='mois'){begin=new Date(anchor.getFullYear(),anchor.getMonth(),1);end=new Date(anchor.getFullYear(),anchor.getMonth()+1,1);}
+ else {begin=new Date(anchor);begin.setDate(begin.getDate()-(begin.getDay()+6)%7);end=new Date(begin);end.setDate(end.getDate()+7);}
+ return [begin,end];}
+function rdvList(){return tab('RENDEZ_VOUS').slice().sort((x,y)=>Number(x.Debut)-Number(y.Debut));}
+function rdvLine(r,forDossier=false){const d=byId('SIGNALEMENTS',r.Signalement),resp=byId('UTILISATEURS',r.Responsable);const num=d?.Numero||'Dossier introuvable';
+ return `<tr><td>${esc(prettyDateTime(r.Debut))}</td><td>${esc(prettyDateTime(r.Fin))}</td>${forDossier?'':`<td>${esc(num)}</td>`}<td>${esc(r.Type_Evenement)}</td><td>${esc(r.Objet||'—')}</td><td>${esc(resp?.Libelle||'—')}</td><td>${esc(r.Statut||'—')}</td><td><button type="button" class="row-button" data-rdv-edit="${r.id}">Modifier</button></td></tr>`;}
+function renderAgenda(){const [begin,end]=agendaBounds();$('agenda-range').textContent=begin.toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'})+' — '+new Date(end.getTime()-1000).toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'});
+ $('agenda-mode').value=state.agendaMode;
+ const dFilter=Number($('agenda-dossier').value)||0;const sFilter=$('agenda-status').value;
+ const rows=rdvList().filter(r=>Number(r.Debut)>=begin.getTime()/1000&&Number(r.Debut)<end.getTime()/1000&&(!dFilter||Number(r.Signalement)===dFilter)&&(!sFilter||r.Statut===sFilter));
+ $('agenda-count').textContent=`${rows.length} événement(s)`;
+ $('agenda-rows').innerHTML=rows.map(r=>rdvLine(r)).join('')||'<tr><td colspan="8">Aucun rendez-vous sur cette période.</td></tr>';
+}
+function renderDossierRdv(){if(!$('suivi-rdv'))return;const rows=rdvList().filter(r=>Number(r.Signalement)===Number(state.dossierSuivi));$('suivi-rdv').innerHTML=rows.map(r=>rdvLine(r,true)).join('')||'<tr><td colspan="7">Aucun rendez-vous pour ce dossier.</td></tr>';}
+function fillRdvSelects(){const dossiers=tab('SIGNALEMENTS').slice().sort((a,b)=>String(a.Numero).localeCompare(String(b.Numero)));
+ const opts=dossiers.map(d=>`<option value="${d.id}">${esc(d.Numero)} — ${esc(d.Objet||'')}</option>`).join('');
+ const old=$('agenda-dossier').value;$('agenda-dossier').innerHTML='<option value="">Tous les dossiers</option>'+opts;$('agenda-dossier').value=old;
+ $('rdv-dossier').innerHTML='<option value="">Choisir un dossier…</option>'+opts;
+ $('rdv-responsable').innerHTML='<option value="">Aucun responsable défini</option>'+tab('UTILISATEURS').filter(u=>Number(u.Actif)!==0).map(u=>`<option value="${u.id}">${esc(u.Libelle||u.Email||'Référent')}</option>`).join('');
+ $('rdv-type').innerHTML=RDV_TYPES.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');
+ $('rdv-statut').innerHTML=RDV_STATUTS.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');}
+function fillRdvParticipants(rdvId,dossier){
+ const allowed=new Set(tab('SIGNALEMENT_PERSONNES').filter(l=>Number(l.Signalement)===Number(dossier)).map(l=>Number(l.Personne)));
+ const selected=new Set(tab('PARTICIPANTS_RDV').filter(l=>Number(l.Rendez_Vous)===Number(rdvId)).map(l=>Number(l.Personne)));
+ const persons=tab('PERSONNES').filter(p=>allowed.has(Number(p.id)));
+ $('rdv-personnes').innerHTML=persons.map(p=>`<label><input type="checkbox" name="rdv-personne" value="${p.id}" ${selected.has(Number(p.id))?'checked':''}> ${esc(p.Libelle)}</label>`).join('')||'<span class="muted">Aucune personne associée au dossier. Vous pouvez en ajouter dans le module Suivi.</span>';
+}
+function openRdv(id=null,dossier=null){$('rdv-form').reset();$('rdv-id').value=id||'';fillRdvSelects();const rec=id?byId('RENDEZ_VOUS',id):null;
+ $('rdv-title').textContent=rec?'Modifier un rendez-vous':'Nouveau rendez-vous';
+ const now=new Date();now.setMinutes(Math.ceil(now.getMinutes()/15)*15,0,0);const later=new Date(now.getTime()+60*60000);
+ $('rdv-dossier').value=rec?.Signalement||dossier||'';
+ $('rdv-objet').value=rec?.Objet||'';$('rdv-type').value=rec?.Type_Evenement||'Entretien';
+ $('rdv-debut').value=rec?localDateTime(rec.Debut):localDateTime(now.getTime()/1000);$('rdv-fin').value=rec?localDateTime(rec.Fin):localDateTime(later.getTime()/1000);
+ $('rdv-responsable').value=rec?.Responsable||'';$('rdv-statut').value=rec?.Statut||'Prévu';
+ $('rdv-modalite').value=rec?.Modalite||'Présentiel';$('rdv-lieu').value=rec?.Lieu||'';$('rdv-commentaire').value=rec?.Commentaire||'';
+ fillRdvParticipants(id,rec?.Signalement||dossier);$('rdv-delete').classList.toggle('hidden',!rec||rec.Statut==='Annulé');$('rdv-modal').classList.remove('hidden');}
+function closeRdv(){$('rdv-modal').classList.add('hidden');}
+function overlap(start,end,a,b){return start<b&&end>a;}
+async function saveRdv(ev){ev.preventDefault();if(state.busy)return;
+ const id=Number($('rdv-id').value)||null;const debut=Date.parse($('rdv-debut').value)/1000,fin=Date.parse($('rdv-fin').value)/1000;
+ const dossier=Number($('rdv-dossier').value),responsable=Number($('rdv-responsable').value)||0;
+ if(!byId('SIGNALEMENTS',dossier)||!Number.isFinite(debut)||!Number.isFinite(fin)||fin<=debut)return notify('Choisis un dossier, un début et une fin postérieure au début.');
+ if(fin-debut>7*86400)return notify('Un rendez-vous ne peut pas durer plus de 7 jours dans ce prototype.');
+ const statut=$('rdv-statut').value;
+ const participants=[...document.querySelectorAll('input[name="rdv-personne"]:checked')].map(el=>Number(el.value));
+ const conflicts=responsable&&statut!=='Annulé'?rdvList().filter(r=>Number(r.id)!==id&&Number(r.Responsable)===responsable&&r.Statut!=='Annulé'&&overlap(debut,fin,Number(r.Debut),Number(r.Fin))):[];
+ if(conflicts.length&&!confirm(`Conflit horaire : ce référent a ${conflicts.length} autre(s) événement(s) sur ce créneau. Enregistrer malgré tout ?`))return;
+ const fields={Signalement:dossier,Objet:$('rdv-objet').value.trim(),Type_Evenement:$('rdv-type').value,Debut:debut,Fin:fin,Responsable:responsable||null,Statut:statut,Modalite:$('rdv-modalite').value,Lieu:$('rdv-lieu').value.trim(),Commentaire:$('rdv-commentaire').value.trim()};
+ if(!fields.Objet)return notify('Renseigne un objet synthétique.');
+ if(!id){fields.Date_Creation=Math.floor(Date.now()/1000);fields.Code='RDV-'+Date.now()+'-'+Math.floor(Math.random()*1e8);}
+ state.busy=true;$('rdv-save').disabled=true;
+ try {await grist.docApi.applyUserActions([[id?'UpdateRecord':'AddRecord','RENDEZ_VOUS',id,fields]]);
+ const records=rowsFrom(await grist.docApi.fetchTable('RENDEZ_VOUS'));
+ const rid=id||(records.find(r=>r.Code===fields.Code)?.id);
+ if(!rid)throw new Error('Événement créé, mais identifiant introuvable pour associer les participants.');
+ const old=rowsFrom(await grist.docApi.fetchTable('PARTICIPANTS_RDV')).filter(r=>Number(r.Rendez_Vous)===Number(rid));
+ const oldIds=new Set(old.map(r=>Number(r.Personne))),wanted=new Set(participants);
+ const ops=[...old.filter(r=>!wanted.has(Number(r.Personne))).map(r=>['RemoveRecord','PARTICIPANTS_RDV',r.id]),...participants.filter(pid=>!oldIds.has(pid)).map(pid=>['AddRecord','PARTICIPANTS_RDV',null,{Rendez_Vous:Number(rid),Personne:pid}])];
+ if(ops.length)await grist.docApi.applyUserActions(ops);
+ closeRdv();await refresh();notify('Rendez-vous et participants enregistrés dans Grist.',true);}
+ catch(err){notify('Enregistrement du rendez-vous impossible : '+err.message);}
+ finally{state.busy=false;$('rdv-save').disabled=false;}}
+async function cancelRdv(){const id=Number($('rdv-id').value);if(!id||!confirm('Annuler cet événement ? Il restera conservé dans l’agenda.'))return;
+ if(state.busy)return;state.busy=true;
+ try{await grist.docApi.applyUserActions([['UpdateRecord','RENDEZ_VOUS',id,{Statut:'Annulé'}]]);closeRdv();await refresh();notify('Rendez-vous annulé, historique de la ligne conservé.',true);}
+ catch(err){notify('Annulation impossible : '+err.message);}finally{state.busy=false;}}
+function moveAgenda(direction){const d=new Date(state.agendaDate);if(state.agendaMode==='jour')d.setDate(d.getDate()+direction);else if(state.agendaMode==='mois')d.setMonth(d.getMonth()+direction);else d.setDate(d.getDate()+7*direction);state.agendaDate=d;renderAgenda();}
+$('agenda-mode').onchange=e=>{state.agendaMode=e.target.value;renderAgenda();};
+$('agenda-prev').onclick=()=>moveAgenda(-1);$('agenda-next').onclick=()=>moveAgenda(1);$('agenda-today').onclick=()=>{state.agendaDate=new Date();renderAgenda();};
+$('agenda-dossier').onchange=renderAgenda;$('agenda-status').onchange=renderAgenda;
+$('agenda-add').onclick=()=>openRdv();$('suivi-add-rdv').onclick=()=>openRdv(null,state.dossierSuivi);
+$('rdv-close').onclick=closeRdv;$('rdv-cancel').onclick=closeRdv;$('rdv-form').addEventListener('submit',saveRdv);
+$('rdv-delete').onclick=cancelRdv;
+$('rdv-dossier').addEventListener('change',e=>fillRdvParticipants(Number($('rdv-id').value),Number(e.target.value))); 
+$('rdv-modal').addEventListener('click',e=>{if(e.target===$('rdv-modal'))closeRdv();});
+document.addEventListener('click',e=>{const btn=e.target.closest('[data-rdv-edit]');if(btn)openRdv(Number(btn.dataset.rdvEdit));});
+
+for(const el of document.querySelectorAll('.nav'))el.addEventListener('click',()=>show(el.dataset.view));$('add').onclick=()=>openForm();$('close').onclick=closeForm;$('cancel').onclick=closeForm;$('refresh').onclick=refresh;$('all').onclick=()=>show('dossiers');$('record-form').addEventListener('submit',save);for(const id of ['search','filter-status','filter-motif'])$(id).addEventListener(id==='search'?'input':'change',render);$('clear').onclick=()=>{$('search').value='';$('filter-status').value='';$('filter-motif').value='';render();};document.addEventListener('click',ev=>{const button=ev.target.closest('[data-edit]');if(button)openForm(Number(button.dataset.edit));});$('run-audit').onclick=refresh;$('add-user').onclick=()=>editUser();$('user-close').onclick=closeUser;$('user-cancel').onclick=closeUser;$('user-form').addEventListener('submit',saveUser);$('access-form').addEventListener('submit',saveAccess);$('access-close').onclick=closeAccess;$('access-cancel').onclick=closeAccess;document.addEventListener('click',e=>{const b=e.target.closest('[data-access-user]');if(b)openAccess(Number(b.dataset.accessUser));});$('access-modal').addEventListener('click',e=>{if(e.target===$('access-modal'))closeAccess();});document.addEventListener('click',e=>{const b=e.target.closest('[data-user-edit]');if(b)editUser(Number(b.dataset.userEdit));});$('user-modal').addEventListener('click',e=>{if(e.target===$('user-modal'))closeUser();});$('modal').addEventListener('click',ev=>{if(ev.target===$('modal'))closeForm();});document.addEventListener('keydown',ev=>{if(ev.key==='Escape'){closeForm();closeUser();closeAccess();closePersonForm();closeRdv();}});
 if(typeof grist==='undefined'){notify('Ce widget doit être ouvert depuis une page Grist (API indisponible).');}else{grist.ready({requiredAccess:'full'});refresh();}

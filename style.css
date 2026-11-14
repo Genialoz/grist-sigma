@@ -27,3 +27,11 @@
 
 /* SIGMA V0.5 : suivi par dossier */
 .suivi-section{border-top:1px solid #dce6ef;margin-top:20px;padding-top:18px}.suivi-section h3{font-size:16px;margin:0 0 14px}.inline-form{display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin-top:15px}.inline-form label{display:flex;flex-direction:column;gap:5px;flex:1;min-width:180px;font-size:12px;font-weight:600}.inline-form button{min-height:39px}.form-grid>.wide{grid-column:1/-1}.suivi-section .form-grid{margin-bottom:18px}.suivi-section .form-actions{margin-top:0}.suivi-section td{overflow-wrap:anywhere}@media(max-width:700px){.inline-form{align-items:stretch}.inline-form button{width:100%}}
+
+/* SIGMA V0.6 — agenda et modal rendez-vous */
+.agenda-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:14px 0 20px}
+.agenda-toolbar strong{min-width:205px;font-size:13px;color:#354d66}
+.agenda-toolbar select{max-width:240px;min-width:135px}
+#agenda .table-wrap td,#suivi-rdv td{white-space:normal;min-width:88px}
+#rdv-modal .dialog{width:min(800px,100%)}
+@media(max-width:700px){.agenda-toolbar strong{width:100%}.agenda-toolbar select{flex:1;max-width:none}}
