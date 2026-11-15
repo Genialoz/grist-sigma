@@ -134,3 +134,16 @@
 .sigma-overview-actions h3{font-size:15px;margin:0 0 10px}
 .sigma-overview-shortcuts{display:flex;flex-wrap:wrap;gap:8px}
 @media(max-width:720px){.sigma-overview-grid{grid-template-columns:1fr}.sigma-overview-wide{grid-column:auto}.sigma-dossier-bar>button{width:100%}}
+
+/* SIGMA V1.0.8 : accueil opérationnel, informations minimales sans nom ni détail de dossier. */
+.home-agenda{background:#fff;border:1px solid #e0e8f0;border-radius:12px;padding:18px;margin:0 0 18px;box-shadow:0 3px 15px #10263f08}
+.home-agenda-head{align-items:flex-start}.home-agenda-head p{margin:5px 0 0}
+.home-agenda-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.home-agenda-block{border:1px solid #e4edf4;border-radius:11px;padding:14px;min-width:0;background:#fbfdff}
+.home-agenda-block h3{font-size:14px;margin:0 0 10px;display:flex;gap:9px;align-items:center}
+.home-count{font-size:11px;border-radius:999px;background:#e5f2f0;color:#136e67;padding:3px 9px;font-variant-numeric:tabular-nums}
+.home-rdv{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:11px 0;border-top:1px solid #e8eef4}
+.home-rdv-main{display:flex;flex-direction:column;gap:4px;min-width:0}
+.home-rdv-main strong{font-size:13px;color:#203d57}.home-rdv-main span{font-size:12px;color:#556d82;overflow-wrap:anywhere}
+.home-empty,.home-more{font-size:12px;color:#61758c;margin:8px 0;line-height:1.6}
+@media(max-width:850px){.home-agenda-grid{grid-template-columns:1fr}.home-agenda-head{flex-wrap:wrap}}

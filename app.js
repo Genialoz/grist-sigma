@@ -1,4 +1,4 @@
-/* SIGMA V1.0.7 TEST — préparation automatique des courriels ; ACL Grist obligatoires. */
+/* SIGMA V1.0.8 TEST — préparation automatique des courriels ; ACL Grist obligatoires. */
 'use strict';
 const TABLES = ['SIGNALEMENTS','ACADEMIES','STATUTS','MOTIFS','SIGNALEMENT_MOTIFS','UTILISATEURS','HABILITATIONS','PERSONNES','SIGNALEMENT_PERSONNES','ACTIONS','HISTORIQUE_STATUTS','RENDEZ_VOUS','PARTICIPANTS_RDV','DOCUMENTS','VERSIONS_DOCUMENTS','COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS','HISTORIQUE_PARTAGES','MODELES_COURRIELS'];
 const state = {data:{},view:'dashboard',busy:false,dossierSuivi:null,agendaDate:new Date(),agendaMode:'semaine',rdvDossier:null};
@@ -19,7 +19,39 @@ const dateText=v=>{if(!v)return '—';if(typeof v==='number')return new Date(v*1
 function statusName(id){return byId('STATUTS',id)?.Libelle || 'Non renseigné';}
 function statusBadge(name){return `<span class="pill ${name==='Clôturé'?'done':name==='En attente'?'wait':''}">${esc(name)}</span>`;}
 function dossierRow(r){return `<tr><td><strong>${esc(r.Numero||'—')}</strong></td><td>${esc(r.Objet)}</td><td>${esc(byId('ACADEMIES',r.Academie)?.Nom||'—')}</td><td>${esc(namesFor(r.id).join(', ')||'—')}</td><td>${esc(assignedTo(r.id).map(a=>labelUser(a.Utilisateur)).join(', ')||'—')}</td><td>${statusBadge(statusName(r.Statut))}</td><td>${dateText(r.Date_Reception)}</td><td><button class="row-button" data-edit="${r.id}">Modifier</button> <button class="row-button" data-suivi="${r.id}">Ouvrir le dossier</button></td></tr>`;}
-function render(){const dossiers=tab('SIGNALEMENTS');if(state.view==='dashboard'){$('metrics').innerHTML=[['Total des dossiers',dossiers.length],['En cours',dossiers.filter(r=>statusName(r.Statut)==='En cours de traitement').length],['À qualifier',dossiers.filter(r=>statusName(r.Statut)==='À qualifier').length],['Clôturés',dossiers.filter(r=>statusName(r.Statut)==='Clôturé').length]].map(([label,n])=>`<div class="metric"><span>${esc(label)}</span><b>${n}</b></div>`).join('');$('recent').innerHTML=`<div class="table-wrap"><table><thead><tr><th>Numéro</th><th>Objet</th><th>Académie</th><th>Motifs</th><th>Statut</th><th>Ouverture</th><th></th></tr></thead><tbody>${dossiers.slice().sort((a,b)=>b.id-a.id).slice(0,8).map(dossierRow).join('')||'<tr><td colspan="8">Aucun dossier.</td></tr>'}</tbody></table></div>`;}
+// Accueil : informations d'agenda limitées et sans donnée nominative.
+// Les trois prochains jours sont J+1, J+2 et J+3 (jours calendaires locaux).
+function sigmaHomeAgendaGroups(appointments, now=new Date()) {
+  const today = new Date(now.getFullYear(),now.getMonth(),now.getDate());
+  const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate()+1);
+  const limit = new Date(today); limit.setDate(limit.getDate()+4);
+  const current = now.getTime(), result={today:[],next:[]};
+  for(const rdv of appointments){
+    if(String(rdv.Statut||'').trim().toLowerCase()==='annulé' || String(rdv.Statut||'').trim().toLowerCase()==='annule')continue;
+    const start=Number(rdv.Debut)*1000, end=Number(rdv.Fin)*1000;
+    if(!Number.isFinite(start)||start<=0||!Number.isFinite(end)||end<=0||end<current)continue;
+    if(start>=today.getTime()&&start<tomorrow.getTime())result.today.push(rdv);
+    else if(start>=tomorrow.getTime()&&start<limit.getTime())result.next.push(rdv);
+  }
+  for(const key of ['today','next'])result[key].sort((a,b)=>Number(a.Debut)-Number(b.Debut)||Number(a.id)-Number(b.id));
+  return result;
+}
+function sigmaRenderHomeAgenda(){
+  const groups=sigmaHomeAgendaGroups(tab('RENDEZ_VOUS'));
+  const renderGroup=(key,elementId,countId,empty)=>{
+    const items=groups[key].filter(r=>byId('SIGNALEMENTS',r.Signalement));
+    $(countId).textContent=String(items.length);
+    $(elementId).innerHTML=items.length?items.slice(0,4).map(r=>{
+      const d=byId('SIGNALEMENTS',r.Signalement);
+      const when=new Date(Number(r.Debut)*1000).toLocaleString('fr-FR',{weekday:key==='today'?undefined:'short',day:key==='today'?undefined:'numeric',month:key==='today'?undefined:'short',hour:'2-digit',minute:'2-digit'});
+      const kind=String(r.Type_Evenement||'Rendez-vous');
+      return `<div class="home-rdv"><div class="home-rdv-main"><strong>${esc(when)}</strong><span>${esc(kind)} · Dossier ${esc(d.Numero||'—')}</span></div><button type="button" class="row-button" data-suivi="${Number(d.id)}" aria-label="Ouvrir le dossier ${esc(d.Numero||'')}">Dossier</button></div>`;
+    }).join('')+(items.length>4?`<p class="home-more">${items.length-4} autre(s) événement(s) dans l’agenda.</p>`:''):`<p class="home-empty">${empty}</p>`;
+  };
+  renderGroup('today','home-today','home-today-count','Aucun rendez-vous restant aujourd’hui.');
+  renderGroup('next','home-next','home-next-count','Aucun rendez-vous dans les trois prochains jours.');
+}
+function render(){const dossiers=tab('SIGNALEMENTS');if(state.view==='dashboard'){sigmaRenderHomeAgenda();$('metrics').innerHTML=[['Total des dossiers',dossiers.length],['En cours',dossiers.filter(r=>statusName(r.Statut)==='En cours de traitement').length],['À qualifier',dossiers.filter(r=>statusName(r.Statut)==='À qualifier').length],['Clôturés',dossiers.filter(r=>statusName(r.Statut)==='Clôturé').length]].map(([label,n])=>`<div class="metric"><span>${esc(label)}</span><b>${n}</b></div>`).join('');$('recent').innerHTML=`<div class="table-wrap"><table><thead><tr><th>Numéro</th><th>Objet</th><th>Académie</th><th>Motifs</th><th>Statut</th><th>Ouverture</th><th></th></tr></thead><tbody>${dossiers.slice().sort((a,b)=>b.id-a.id).slice(0,8).map(dossierRow).join('')||'<tr><td colspan="8">Aucun dossier.</td></tr>'}</tbody></table></div>`;}
 if(state.view==='users'){renderUsers();}
 if(state.view==='suivi'){renderSuivi();}
 if(state.view==='agenda'){renderAgenda();}
@@ -721,7 +753,7 @@ document.addEventListener('click',e=>{
   }
 });
 
-for(const el of document.querySelectorAll('.nav'))el.addEventListener('click',()=>show(el.dataset.view));$('add').onclick=()=>openForm();$('close').onclick=closeForm;$('cancel').onclick=closeForm;$('refresh').onclick=refresh;$('all').onclick=()=>show('dossiers');$('record-form').addEventListener('submit',save);for(const id of ['search','filter-status','filter-motif'])$(id).addEventListener(id==='search'?'input':'change',render);$('clear').onclick=()=>{$('search').value='';$('filter-status').value='';$('filter-motif').value='';render();};document.addEventListener('click',ev=>{const button=ev.target.closest('[data-edit]');if(button)openForm(Number(button.dataset.edit));});$('run-audit').onclick=refresh;$('add-user').onclick=()=>editUser();$('user-close').onclick=closeUser;$('user-cancel').onclick=closeUser;$('user-form').addEventListener('submit',saveUser);$('access-form').addEventListener('submit',saveAccess);$('access-close').onclick=closeAccess;$('access-cancel').onclick=closeAccess;document.addEventListener('click',e=>{const b=e.target.closest('[data-access-user]');if(b)openAccess(Number(b.dataset.accessUser));});$('access-modal').addEventListener('click',e=>{if(e.target===$('access-modal'))closeAccess();});document.addEventListener('click',e=>{const b=e.target.closest('[data-user-edit]');if(b)editUser(Number(b.dataset.userEdit));});$('user-modal').addEventListener('click',e=>{if(e.target===$('user-modal'))closeUser();});$('modal').addEventListener('click',ev=>{if(ev.target===$('modal'))closeForm();});document.addEventListener('keydown',ev=>{if(ev.key==='Escape'){closeForm();closeUser();closeAccess();closePersonForm();closeRdv();closeDocument();$('version-modal').classList.add('hidden');}});
+for(const el of document.querySelectorAll('.nav'))el.addEventListener('click',()=>show(el.dataset.view));$('add').onclick=()=>openForm();$('close').onclick=closeForm;$('cancel').onclick=closeForm;$('refresh').onclick=refresh;$('all').onclick=()=>show('dossiers');$('home-open-agenda').onclick=()=>{state.agendaDate=new Date();show('agenda');};$('record-form').addEventListener('submit',save);for(const id of ['search','filter-status','filter-motif'])$(id).addEventListener(id==='search'?'input':'change',render);$('clear').onclick=()=>{$('search').value='';$('filter-status').value='';$('filter-motif').value='';render();};document.addEventListener('click',ev=>{const button=ev.target.closest('[data-edit]');if(button)openForm(Number(button.dataset.edit));});$('run-audit').onclick=refresh;$('add-user').onclick=()=>editUser();$('user-close').onclick=closeUser;$('user-cancel').onclick=closeUser;$('user-form').addEventListener('submit',saveUser);$('access-form').addEventListener('submit',saveAccess);$('access-close').onclick=closeAccess;$('access-cancel').onclick=closeAccess;document.addEventListener('click',e=>{const b=e.target.closest('[data-access-user]');if(b)openAccess(Number(b.dataset.accessUser));});$('access-modal').addEventListener('click',e=>{if(e.target===$('access-modal'))closeAccess();});document.addEventListener('click',e=>{const b=e.target.closest('[data-user-edit]');if(b)editUser(Number(b.dataset.userEdit));});$('user-modal').addEventListener('click',e=>{if(e.target===$('user-modal'))closeUser();});$('modal').addEventListener('click',ev=>{if(ev.target===$('modal'))closeForm();});document.addEventListener('keydown',ev=>{if(ev.key==='Escape'){closeForm();closeUser();closeAccess();closePersonForm();closeRdv();closeDocument();$('version-modal').classList.add('hidden');}});
 if(typeof grist==='undefined'){notify('Ce widget doit être ouvert depuis une page Grist (API indisponible).');}else{grist.ready({requiredAccess:'full'});refresh();}
 
 
