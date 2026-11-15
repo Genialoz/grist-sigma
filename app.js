@@ -1,4 +1,4 @@
-/* SIGMA V1.0 TEST — données fictives uniquement ; ACL Grist obligatoires. */
+/* SIGMA V1.0.1 TEST — préparation automatique des courriels ; ACL Grist obligatoires. */
 'use strict';
 const TABLES = ['SIGNALEMENTS','ACADEMIES','STATUTS','MOTIFS','SIGNALEMENT_MOTIFS','UTILISATEURS','HABILITATIONS','PERSONNES','SIGNALEMENT_PERSONNES','ACTIONS','HISTORIQUE_STATUTS','RENDEZ_VOUS','PARTICIPANTS_RDV','DOCUMENTS','VERSIONS_DOCUMENTS','COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS','HISTORIQUE_PARTAGES','MODELES_COURRIELS'];
 const state = {data:{},view:'dashboard',busy:false,dossierSuivi:null,agendaDate:new Date(),agendaMode:'semaine',rdvDossier:null};
@@ -534,6 +534,23 @@ async function changeCollabStatus(table,id,fields,docId,label){
 const mailModels = () => tab('MODELES_COURRIELS').slice().sort((a,b)=>(Number(a.Ordre)||0)-(Number(b.Ordre)||0)||a.id-b.id);
 const mailSafe = value => String(value ?? '').replace(/[\r\n]/g,' ').trim();
 const mailAllowed = new Set(['destinataire','droit','expiration','version']);
+// État local du brouillon ; jamais enregistré dans Grist et jamais envoyé automatiquement.
+const mailDraft={docId:null,shareId:'',templateId:'',baselineSubject:'',baselineBody:'',ready:false};
+function mailHasChanges(){
+  return mailDraft.ready && ($('mail-subject').value!==mailDraft.baselineSubject || $('mail-body').value!==mailDraft.baselineBody);
+}
+function mailButtons(){
+  const available=mailDraft.ready && !!$('mail-share').value && !!$('mail-template').value &&
+    mailDraft.shareId===$('mail-share').value && mailDraft.templateId===$('mail-template').value;
+  $('mail-copy').disabled=!available;
+  $('mail-open').disabled=!available;
+}
+function mailInfo(text){$('mail-info').textContent=text;}
+function clearMailDraft(message){
+  $('mail-subject').value='';$('mail-body').value='';
+  Object.assign(mailDraft,{shareId:'',templateId:'',baselineSubject:'',baselineBody:'',ready:false});
+  mailButtons();mailInfo(message||'Sélectionne une demande vérifiée et un modèle : le courriel sera préparé automatiquement.');
+}
 function renderMailChoices(doc){
   const previousShare=$('mail-share').value,previousTemplate=$('mail-template').value;
   const eligible=documentShares(doc.id).filter(p=>{
@@ -544,7 +561,13 @@ function renderMailChoices(doc){
   $('mail-template').innerHTML='<option value="">Sélectionner un modèle…</option>'+mailModels().filter(m=>Number(m.Actif)===1).map(m=>`<option value="${m.id}">${esc(m.Libelle)}</option>`).join('');
   if(eligible.some(p=>String(p.id)===previousShare))$('mail-share').value=previousShare;
   if(mailModels().some(m=>String(m.id)===previousTemplate&&Number(m.Actif)===1))$('mail-template').value=previousTemplate;
-  $('mail-info').textContent='Sélectionne une demande vérifiée et un modèle, puis prépare le message.';
+  if(mailDraft.docId!==Number(doc.id)){
+    clearMailDraft();mailDraft.docId=Number(doc.id);
+  }else if($('mail-share').value && $('mail-template').value){
+    // Un rafraîchissement Grist ne doit pas écraser un message retouché.
+    if(!mailHasChanges())prepareMail({silent:true});
+    else {mailButtons();mailInfo('Message personnalisé conservé. Actualiser demandera confirmation avant remplacement.');}
+  }else if(!mailHasChanges())clearMailDraft();
 }
 function mailContext(){
   const doc=currentDoc(),share=byId('PARTAGES_DOCUMENTS',Number($('mail-share').value));
@@ -561,30 +584,60 @@ function mailExpand(template,ctx){
   const values={destinataire:mailSafe(ctx.share.Destinataire),droit:ctx.share.Droit==='commentaire'?'lecture et commentaires':'lecture seule',expiration:dateText(ctx.share.Expiration),version:String(ctx.version.Numero_Version)};
   return String(template||'').replace(/\{([^{}]+)\}/g,(_,key)=>mailAllowed.has(key)?values[key]:'{'+key+'}');
 }
-function prepareMail(){
+function prepareMail({force=false,silent=false}={}){
+  const shareId=$('mail-share').value,templateId=$('mail-template').value;
+  const changedSelection=mailDraft.ready && (mailDraft.shareId!==shareId||mailDraft.templateId!==templateId);
+  if(mailHasChanges() && (force||changedSelection)){
+    if(!confirm('Le courriel contient des modifications manuelles. Les remplacer par le modèle sélectionné ?')){
+      if(changedSelection){$('mail-share').value=mailDraft.shareId;$('mail-template').value=mailDraft.templateId;}
+      mailButtons();mailInfo('Modifications manuelles conservées.');
+      return false;
+    }
+  }
+  if(!shareId||!templateId){
+    clearMailDraft();
+    return false;
+  }
   try{
     const ctx=mailContext();
-    $('mail-subject').value=mailExpand(ctx.model.Objet,ctx).replace(/[\r\n]/g,' ').trim();
-    $('mail-body').value=mailExpand(ctx.model.Corps,ctx);
-    $('mail-info').textContent='Aperçu prêt pour '+ctx.share.Email+'. Aucun accès au compte rendu n’est ouvert.';
-    notify('Message préparé. Vérifie l’objet et le contenu avant toute action.',true);
-  }catch(e){notify(e.message);}
+    const subject=mailExpand(ctx.model.Objet,ctx).replace(/[\r\n]/g,' ').trim();
+    const body=mailExpand(ctx.model.Corps,ctx);
+    $('mail-subject').value=subject;$('mail-body').value=body;
+    Object.assign(mailDraft,{docId:Number(ctx.doc.id),shareId,templateId,baselineSubject:subject,baselineBody:body,ready:true});
+    mailButtons();
+    mailInfo('Message préparé pour '+ctx.share.Email+'. Tu peux modifier le texte avant ouverture. Aucun accès au document n’est créé.');
+    if(!silent)notify('Message actualisé. Vérifie le contenu avant envoi.',true);
+    return true;
+  }catch(e){
+    clearMailDraft('Préparation impossible : '+e.message);
+    if(!silent)notify(e.message);
+    return false;
+  }
+}
+function onMailSelectionChange(){
+  prepareMail({silent:true});
 }
 function composedMail(){
   const ctx=mailContext(),subject=$('mail-subject').value.trim(),body=$('mail-body').value.trim();
-  if(!subject||!body)throw new Error('Prépare et vérifie un objet et un corps de message.');
+  if(!mailDraft.ready || mailDraft.shareId!==$('mail-share').value || mailDraft.templateId!==$('mail-template').value)throw new Error('Sélectionne une demande et un modèle pour préparer le courriel.');
+  if(!subject||!body)throw new Error('Vérifie l’objet et le corps du message.');
   if(/[\r\n]/.test(subject))throw new Error('L’objet ne doit pas contenir de retour à la ligne.');
   if(/https?:\/\//i.test(body)||/https?:\/\//i.test(subject))throw new Error('Aucun lien HTTP(S) n’est accepté dans ce pilote sans accès externe.');
   return {email:ctx.share.Email,subject,body};
 }
-$('mail-preview').addEventListener('click',prepareMail);
-$('mail-share').addEventListener('change',()=>{$('mail-subject').value='';$('mail-body').value='';});
+$('mail-preview').addEventListener('click',()=>prepareMail({force:true}));
+$('mail-share').addEventListener('change',onMailSelectionChange);
+for(const id of ['mail-subject','mail-body'])$(id).addEventListener('input',()=>{
+  mailButtons();
+  if(mailHasChanges())mailInfo('Message personnalisé : tes modifications sont conservées.');
+  else if(mailDraft.ready)mailInfo('Message conforme au modèle, prêt à être vérifié.');
+});
 $('mail-template').addEventListener('change',()=>{
+  onMailSelectionChange();
   const m=byId('MODELES_COURRIELS',Number($('mail-template').value));
   $('mail-template-id').value=m?.id||'';$('mail-model-code').value=m?.Code||'';
   $('mail-model-label').value=m?.Libelle||'';$('mail-model-subject').value=m?.Objet||'';$('mail-model-body').value=m?.Corps||'';
   $('mail-model-active').checked=Number(m?.Actif)===1;
-  $('mail-subject').value='';$('mail-body').value='';
 });
 $('mail-model-new').addEventListener('click',()=>{$('mail-template-form').reset();$('mail-template-id').value='';$('mail-model-active').checked=true;});
 $('mail-template-form').addEventListener('submit',async e=>{
@@ -601,6 +654,7 @@ $('mail-template-form').addEventListener('submit',async e=>{
     if(!saved)throw new Error('Le modèle n’a pas été retrouvé après écriture.');
     renderMailChoices(currentDoc());$('mail-template').value=String(saved.id);
     $('mail-template-id').value=saved.id;
+    onMailSelectionChange();
     notify('Modèle de courriel enregistré dans Grist.',true);
   }catch(err){notify('Modèle non confirmé : '+err.message);}
   finally{state.busy=false;}
