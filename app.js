@@ -1,4 +1,4 @@
-/* SIGMA V1.0.8 TEST — préparation automatique des courriels ; ACL Grist obligatoires. */
+/* SIGMA V1.0.9 TEST — préparation automatique des courriels ; ACL Grist obligatoires. */
 'use strict';
 const TABLES = ['SIGNALEMENTS','ACADEMIES','STATUTS','MOTIFS','SIGNALEMENT_MOTIFS','UTILISATEURS','HABILITATIONS','PERSONNES','SIGNALEMENT_PERSONNES','ACTIONS','HISTORIQUE_STATUTS','RENDEZ_VOUS','PARTICIPANTS_RDV','DOCUMENTS','VERSIONS_DOCUMENTS','COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS','HISTORIQUE_PARTAGES','MODELES_COURRIELS'];
 const state = {data:{},view:'dashboard',busy:false,dossierSuivi:null,agendaDate:new Date(),agendaMode:'semaine',rdvDossier:null};
@@ -51,7 +51,42 @@ function sigmaRenderHomeAgenda(){
   renderGroup('today','home-today','home-today-count','Aucun rendez-vous restant aujourd’hui.');
   renderGroup('next','home-next','home-next-count','Aucun rendez-vous dans les trois prochains jours.');
 }
-function render(){const dossiers=tab('SIGNALEMENTS');if(state.view==='dashboard'){sigmaRenderHomeAgenda();$('metrics').innerHTML=[['Total des dossiers',dossiers.length],['En cours',dossiers.filter(r=>statusName(r.Statut)==='En cours de traitement').length],['À qualifier',dossiers.filter(r=>statusName(r.Statut)==='À qualifier').length],['Clôturés',dossiers.filter(r=>statusName(r.Statut)==='Clôturé').length]].map(([label,n])=>`<div class="metric"><span>${esc(label)}</span><b>${n}</b></div>`).join('');$('recent').innerHTML=`<div class="table-wrap"><table><thead><tr><th>Numéro</th><th>Objet</th><th>Académie</th><th>Motifs</th><th>Statut</th><th>Ouverture</th><th></th></tr></thead><tbody>${dossiers.slice().sort((a,b)=>b.id-a.id).slice(0,8).map(dossierRow).join('')||'<tr><td colspan="8">Aucun dossier.</td></tr>'}</tbody></table></div>`;}
+// V1.0.9 : classification par jour civil local, sans exposer les descriptions.
+const sigmaTaskComplete = a => ['réalisée','realisee','annulée','annulee'].includes(String(a.Etat||'').trim().toLowerCase());
+function sigmaTaskDay(raw){
+ const n=Number(raw);
+ if(!Number.isFinite(n)||n<=0)return null;
+ const d=new Date(n*1000);
+ return new Date(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate());
+}
+function sigmaTaskGroups(actions,now=new Date()){
+ const today=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+ const limit=new Date(today);limit.setDate(limit.getDate()+4);
+ const result={late:[],next:[]};
+ for(const action of actions){
+  if(sigmaTaskComplete(action))continue;
+  const day=sigmaTaskDay(action.Date_Echeance);
+  if(!day)continue;
+  if(day<today)result.late.push(action);
+  else if(day<limit)result.next.push(action);
+ }
+ for(const k of ['late','next'])result[k].sort((x,y)=>Number(x.Date_Echeance)-Number(y.Date_Echeance)||Number(x.id)-Number(y.id));
+ return result;
+}
+function sigmaRenderHomeTasks(){
+ const groups=sigmaTaskGroups(tab('ACTIONS'));
+ const draw=(key,element,count,empty)=>{
+  const items=groups[key].filter(a=>byId('SIGNALEMENTS',a.Signalement));
+  $(count).textContent=String(items.length);
+  $(element).innerHTML=items.length?items.slice(0,4).map(action=>{
+   const d=byId('SIGNALEMENTS',action.Signalement);
+   return `<div class="home-rdv"><div class="home-rdv-main"><strong>${esc(dateText(action.Date_Echeance))}</strong><span>${esc(action.Type_Action||'Action')} · Dossier ${esc(d.Numero||'—')}</span></div><button type="button" class="row-button" data-suivi-task="${Number(d.id)}" aria-label="Voir les actions du dossier ${esc(d.Numero||'')}">Dossier</button></div>`;
+  }).join('')+(items.length>4?`<p class="home-more">${items.length-4} autre(s) action(s) à suivre.</p>`:''):`<p class="home-empty">${empty}</p>`;
+ };
+ draw('late','sigma-tasks-late','sigma-tasks-late-count','Aucune échéance dépassée.');
+ draw('next','sigma-tasks-next','sigma-tasks-next-count','Aucune échéance dans les trois prochains jours.');
+}
+function render(){const dossiers=tab('SIGNALEMENTS');if(state.view==='dashboard'){sigmaRenderHomeAgenda();sigmaRenderHomeTasks();$('metrics').innerHTML=[['Total des dossiers',dossiers.length],['En cours',dossiers.filter(r=>statusName(r.Statut)==='En cours de traitement').length],['À qualifier',dossiers.filter(r=>statusName(r.Statut)==='À qualifier').length],['Clôturés',dossiers.filter(r=>statusName(r.Statut)==='Clôturé').length]].map(([label,n])=>`<div class="metric"><span>${esc(label)}</span><b>${n}</b></div>`).join('');$('recent').innerHTML=`<div class="table-wrap"><table><thead><tr><th>Numéro</th><th>Objet</th><th>Académie</th><th>Motifs</th><th>Statut</th><th>Ouverture</th><th></th></tr></thead><tbody>${dossiers.slice().sort((a,b)=>b.id-a.id).slice(0,8).map(dossierRow).join('')||'<tr><td colspan="8">Aucun dossier.</td></tr>'}</tbody></table></div>`;}
 if(state.view==='users'){renderUsers();}
 if(state.view==='suivi'){renderSuivi();}
 if(state.view==='agenda'){renderAgenda();}
@@ -240,7 +275,7 @@ function renderSuivi(){const d=byId('SIGNALEMENTS',state.dossierSuivi);if(!d){$(
  $('suivi-overview').innerHTML=summary.map(([label,value])=>`<div class="sigma-overview-card"><span>${label}</span><div>${value}</div></div>`).join('')+
  `<div class="sigma-overview-card sigma-overview-wide"><span>Activité du dossier</span><div class="sigma-overview-counts"><span>${linkedPeople} personne(s)</span><span>${actions} action(s)</span><span>${rdvs.length} rendez-vous</span><span>${documents} document(s)</span></div><p class="sigma-overview-last">${history.length?'Dernier changement de statut : '+esc(dateText(history[0].Date_Changement)):'Aucun changement de statut historisé.'}</p></div>`;
  $('suivi-personnes').innerHTML=dossierLinks().map(l=>{const person=byId('PERSONNES',l.Personne);return `<tr><td>${esc(person?.Libelle||'—')}</td><td>${esc(l.Role)}</td><td>${esc(person?.Categorie||'—')}</td><td><button type="button" class="row-button" data-detach="${l.id}">Retirer du dossier</button></td></tr>`;}).join('')||'<tr><td colspan="4">Aucune personne associée.</td></tr>';
- $('suivi-actions').innerHTML=dossierActions().map(a=>`<tr><td>${dateText(a.Date_Action)}</td><td>${esc(a.Type_Action)}</td><td>${esc(a.Description)}</td><td>${esc(a.Etat)}</td></tr>`).join('')||'<tr><td colspan="4">Aucune action enregistrée.</td></tr>';
+ $('suivi-actions').innerHTML=dossierActions().map(a=>`<tr><td>${dateText(a.Date_Action)}</td><td>${esc(a.Type_Action)}</td><td>${esc(a.Description)}</td><td>${dateText(a.Date_Echeance)}</td><td>${esc(a.Etat)}</td><td>${sigmaTaskComplete(a)?'—':`<button type="button" class="row-button" data-task-done="${Number(a.id)}">Marquer réalisée</button>`}</td></tr>`).join('')||'<tr><td colspan="6">Aucune action enregistrée.</td></tr>';
  $('suivi-historique').innerHTML=dossierHistory().map(a=>`<tr><td>${dateText(a.Date_Changement)}</td><td>${esc(statusName(a.Statut_Avant))}</td><td>${esc(statusName(a.Statut_Apres))}</td><td>${esc(a.Commentaire||'—')}</td></tr>`).join('')||'<tr><td colspan="4">Aucun changement tracé depuis l’installation de la V0.5.</td></tr>';
  renderDossierRdv();
  renderDossierDocuments();
@@ -255,10 +290,21 @@ async function savePerson(e){e.preventDefault();if(state.busy)return;const dossi
  }catch(err){notify('Erreur ou enregistrement partiel : '+err.message);}finally{state.busy=false;$('person-save').disabled=false;}}
 async function linkPerson(e){e.preventDefault();if(state.busy)return;const person=Number($('suivi-existing-person').value),dossier=Number(state.dossierSuivi),role=$('suivi-existing-role').value;if(!person||!role)return notify('Choisis une personne et un rôle.');if(dossierLinks().some(l=>Number(l.Personne)===person&&l.Role===role))return notify('Cette association existe déjà.');state.busy=true;try{await grist.docApi.applyUserActions([['AddRecord','SIGNALEMENT_PERSONNES',null,{Signalement:dossier,Personne:person,Role:role}]]);await refresh();notify('Personne associée au dossier.',true);}catch(err){notify('Association impossible : '+err.message);}finally{state.busy=false;}}
 async function detachPerson(id){if(!confirm('Retirer cette association du dossier ? La fiche PERSONNES sera conservée.'))return;try{await grist.docApi.applyUserActions([['RemoveRecord','SIGNALEMENT_PERSONNES',id]]);await refresh();notify('Association retirée.',true);}catch(err){notify('Retrait impossible : '+err.message);}}
-async function saveAction(e){e.preventDefault();if(state.busy)return;const dossier=Number(state.dossierSuivi);const desc=$('action-description').value.trim();const date=$('action-date').value;const ts=Date.parse(date+'T00:00:00Z')/1000;if(!desc||!Number.isFinite(ts))return notify('Renseigne une date et une description.');const fields={Signalement:dossier,Date_Action:ts,Type_Action:$('action-type').value,Description:desc,Etat:$('action-etat').value};state.busy=true;$('action-save').disabled=true;try{await grist.docApi.applyUserActions([['AddRecord','ACTIONS',null,fields]]);$('action-form').reset();$('action-date').value=new Date().toISOString().slice(0,10);await refresh();notify('Action ajoutée au suivi.',true);}catch(err){notify('Enregistrement de l’action impossible : '+err.message);}finally{state.busy=false;$('action-save').disabled=false;}}
+async function saveAction(e){e.preventDefault();if(state.busy)return;const dossier=Number(state.dossierSuivi);const desc=$('action-description').value.trim();const date=$('action-date').value;const ts=Date.parse(date+'T00:00:00Z')/1000;if(!desc||!Number.isFinite(ts))return notify('Renseigne une date et une description.');const deadline=$('action-deadline').value;const due=deadline?Date.parse(deadline+'T00:00:00Z')/1000:null;if(deadline&&!Number.isFinite(due))return notify('Échéance invalide.');const fields={Signalement:dossier,Date_Action:ts,Type_Action:$('action-type').value,Description:desc,Etat:$('action-etat').value};if(deadline)fields.Date_Echeance=due;state.busy=true;$('action-save').disabled=true;try{await grist.docApi.applyUserActions([['AddRecord','ACTIONS',null,fields]]);$('action-form').reset();$('action-date').value=new Date().toISOString().slice(0,10);await refresh();notify('Action ajoutée au suivi.',true);}catch(err){notify('Enregistrement de l’action impossible : '+err.message);}finally{state.busy=false;$('action-save').disabled=false;}}
+async function sigmaMarkTaskDone(id){
+ const action=byId('ACTIONS',id);
+ if(!action||!byId('SIGNALEMENTS',action.Signalement))return notify('Action inaccessible.');
+ if(sigmaTaskComplete(action))return notify('Action déjà terminée.');
+ if(state.busy)return;
+ if(!window.confirm('Marquer cette action comme réalisée ?'))return;
+ state.busy=true;
+ try{await grist.docApi.applyUserActions([['UpdateRecord','ACTIONS',Number(id),{Etat:'réalisée'}]]);await refresh();notify('Action marquée comme réalisée.',true);}
+ catch(err){notify('Mise à jour impossible : '+err.message);}
+ finally{state.busy=false;}
+}
 $('suivi-back').onclick=()=>show('dossiers');
 $('suivi-edit').onclick=()=>{if(state.dossierSuivi)openForm(state.dossierSuivi);};
-document.addEventListener('click',e=>{const b=e.target.closest('[data-dossier-tab]');if(b&&state.view==='suivi')sigmaActivateTab(b.dataset.dossierTab);});$('suivi-add-person').onclick=openPersonForm;$('person-close').onclick=closePersonForm;$('person-cancel').onclick=closePersonForm;$('person-form').addEventListener('submit',savePerson);$('existing-person-form').addEventListener('submit',linkPerson);$('action-form').addEventListener('submit',saveAction);$('action-type').innerHTML=typeActions.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');$('action-date').value=new Date().toISOString().slice(0,10);$('suivi-existing-role').innerHTML=roleOptions.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');document.addEventListener('click',e=>{const open=e.target.closest('[data-suivi]');if(open)openSuivi(Number(open.dataset.suivi));const detach=e.target.closest('[data-detach]');if(detach)detachPerson(Number(detach.dataset.detach));});$('person-modal').addEventListener('click',e=>{if(e.target===$('person-modal'))closePersonForm();});
+document.addEventListener('click',e=>{const button=e.target.closest('[data-task-done]');if(button)sigmaMarkTaskDone(Number(button.dataset.taskDone));const jump=e.target.closest('[data-suivi-task]');if(jump){openSuivi(Number(jump.dataset.suiviTask));sigmaActivateTab('suivi-tab-1');}});document.addEventListener('click',e=>{const b=e.target.closest('[data-dossier-tab]');if(b&&state.view==='suivi')sigmaActivateTab(b.dataset.dossierTab);});$('suivi-add-person').onclick=openPersonForm;$('person-close').onclick=closePersonForm;$('person-cancel').onclick=closePersonForm;$('person-form').addEventListener('submit',savePerson);$('existing-person-form').addEventListener('submit',linkPerson);$('action-form').addEventListener('submit',saveAction);$('action-type').innerHTML=typeActions.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');$('action-date').value=new Date().toISOString().slice(0,10);$('suivi-existing-role').innerHTML=roleOptions.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');document.addEventListener('click',e=>{const open=e.target.closest('[data-suivi]');if(open)openSuivi(Number(open.dataset.suivi));const detach=e.target.closest('[data-detach]');if(detach)detachPerson(Number(detach.dataset.detach));});$('person-modal').addEventListener('click',e=>{if(e.target===$('person-modal'))closePersonForm();});
 
 
 // V0.6 — agenda administrateur, données fictives uniquement. Stockage des horodatages en secondes Unix.
