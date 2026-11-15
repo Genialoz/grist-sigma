@@ -1,4 +1,4 @@
-/* SIGMA V1.0.15 TEST — préparation automatique des courriels ; ACL Grist obligatoires. */
+/* SIGMA V1.0.16 TEST — préparation automatique des courriels ; ACL Grist obligatoires. */
 'use strict';
 const TABLES = ['SIGNALEMENTS','ACADEMIES','STATUTS','MOTIFS','SIGNALEMENT_MOTIFS','UTILISATEURS','HABILITATIONS','PERSONNES','SIGNALEMENT_PERSONNES','ACTIONS','HISTORIQUE_STATUTS','HISTORIQUE_ARCHIVAGE','RENDEZ_VOUS','PARTICIPANTS_RDV','DOCUMENTS','VERSIONS_DOCUMENTS','COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS','HISTORIQUE_PARTAGES','CONSULTATIONS_INVITEES','MODELES_COURRIELS'];
 const state = {data:{},view:'dashboard',busy:false,dossierSuivi:null,agendaDate:new Date(),agendaMode:'semaine',rdvDossier:null,archiveYear:null,returnFromDossier:'dossiers'};
@@ -14,7 +14,7 @@ const byId = (name,id) => tab(name).find(r=>Number(r.id)===Number(id));
 const idsFor = dossierId => tab('SIGNALEMENT_MOTIFS').filter(r=>Number(r.Signalement)===Number(dossierId)).map(r=>Number(r.Motif));
 const namesFor = dossierId => idsFor(dossierId).map(id=>byId('MOTIFS',id)?.Libelle).filter(Boolean);
 function notify(message,ok=false){$('notice').textContent=message;$('notice').className=ok?'ok':'';}
-function show(view){if(view==='archives'&&state.view!=='suivi'&&state.view!=='archives')state.archiveYear=null;state.view=view;for(const el of document.querySelectorAll('.view'))el.classList.toggle('hidden',el.id!==view);for(const el of document.querySelectorAll('.nav'))el.classList.toggle('active',el.dataset.view===view);$('page-title').textContent={dashboard:'Tableau de bord',dossiers:'Signalements',archives:'Archives',users:'Référents',audit:'Contrôle des accès',suivi:'Suivi du signalement',agenda:'Agenda et rendez-vous',documents:'Comptes rendus et documents',settings:'Informations'}[view];render();}
+function show(view){if(view==='archives'&&state.view!=='suivi'&&state.view!=='archives')state.archiveYear=null;state.view=view;for(const el of document.querySelectorAll('.view'))el.classList.toggle('hidden',el.id!==view);for(const el of document.querySelectorAll('.nav'))el.classList.toggle('active',el.dataset.view===view);$('page-title').textContent={dashboard:'Tableau de bord',dossiers:'Signalements',archives:'Archives',users:'Référents',audit:'Contrôle des accès',suivi:'Suivi du signalement',agenda:'Agenda et rendez-vous',documents:'Comptes rendus',settings:'Informations'}[view];render();}
 const dateText=v=>{if(!v)return '—';if(typeof v==='number')return new Date(v*1000).toLocaleDateString('fr-FR',{timeZone:'UTC'});return esc(String(v).slice(0,10));};
 function statusName(id){return byId('STATUTS',id)?.Libelle || 'Non renseigné';}
 function statusBadge(name){return `<span class="pill ${name==='Clôturé'?'done':name==='En attente'?'wait':''}">${esc(name)}</span>`;}
@@ -640,7 +640,7 @@ function renderDocumentCollaboration(doc){
   $('share-save').disabled=doc.Statut!=='Validé'||!shareVersions.length;
   const shares=documentShares(doc.id);
   const now=Date.now()/1000;
-  $('document-shares-list').innerHTML=shares.map(p=>{
+  const renderShareCard=p=>{
     const ver=byId('VERSIONS_DOCUMENTS',p.Version);
     const expired=Number(p.Expiration)>0 && Number(p.Expiration)+86400<=now;
     const status=expired&&p.Statut==='Projet'?'Échéance dépassée (projet)':p.Statut;
@@ -650,7 +650,18 @@ function renderDocumentCollaboration(doc){
     const prepareBtn=p.Statut==='Vérifié' && !expired && ver && !consult ? `<button type="button" class="row-button" data-share-snapshot="${p.id}">Finaliser une ancienne demande</button>` : '';
     const actions=p.Statut==='Projet' ? `<button type="button" class="row-button" data-share-review="${p.id}" ${expired||!ver?'disabled':''}>Valider la préparation</button> <button type="button" class="row-button" data-share-reject="${p.id}">Refuser</button> <button type="button" class="row-button" data-share-cancel="${p.id}">Annuler</button>` : (p.Statut==='Vérifié' ? `<button type="button" class="row-button" data-share-cancel="${p.id}">Révoquer la demande</button>` : '');
     return `<div class="collab-item"><div><strong>${esc(p.Destinataire)}</strong> <span class="pill ${['Annulé','Refusé'].includes(p.Statut)?'done':'wait'}">${esc(status)}</span><small>${esc(p.Email)} · ${esc(p.Droit)} · ${ver?'Version '+esc(ver.Numero_Version):'Version non spécifiée (ancien projet)'} · échéance ${dateText(p.Expiration)} · ${prettyDateTime(p.Date_Creation)}</small><p class="comment-text">${esc(p.Message||'Aucun message')}</p><p class="muted"><strong>La demande seule ne donne aucun accès.</strong></p>${consultInfo}<details class="share-log"><summary>Historique des décisions (${history.length})</summary>${history.map(e=>`<p><small>${prettyDateTime(e.Date_Evenement)} · ${esc(e.Action)} · ${esc(e.Auteur)} — ${esc(e.Motif||'Sans motif')}</small></p>`).join('')||'<p>Aucune décision enregistrée.</p>'}</details></div><div class="share-actions">${prepareBtn} ${actions}</div></div>`;
-  }).join('')||'<p class="muted">Aucune demande de partage enregistrée.</p>';
+  };
+  // Les demandes clôturées restent consultables, mais ne repoussent plus
+  // les destinataires en cours : historique fermé par défaut.
+  const closedShares=shares.filter(p=>['Annulé','Refusé'].includes(p.Statut));
+  const currentShares=shares.filter(p=>!['Annulé','Refusé'].includes(p.Statut));
+  const activeHtml=currentShares.length
+    ?currentShares.map(renderShareCard).join('')
+    :'<p class="muted">Aucune demande en cours. Tu peux enregistrer un nouveau destinataire ci-dessous.</p>';
+  const closedHtml=closedShares.length
+    ?`<details class="sigma-fold sigma-share-closed"><summary>Historique des partages annulés ou refusés (${closedShares.length})</summary><div class="sigma-fold-body">${closedShares.map(renderShareCard).join('')}</div></details>`
+    :'';
+  $('document-shares-list').innerHTML=`<h4>Destinataires et demandes en cours (${currentShares.length})</h4>${activeHtml}${closedHtml}`;
   renderMailChoices(doc);
 }
 // V1.0.5 : aperçu et commentaires strictement liés à la version choisie.
