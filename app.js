@@ -1,7 +1,7 @@
-/* SIGMA V1.0.11 TEST — préparation automatique des courriels ; ACL Grist obligatoires. */
+/* SIGMA V1.0.12 TEST — préparation automatique des courriels ; ACL Grist obligatoires. */
 'use strict';
 const TABLES = ['SIGNALEMENTS','ACADEMIES','STATUTS','MOTIFS','SIGNALEMENT_MOTIFS','UTILISATEURS','HABILITATIONS','PERSONNES','SIGNALEMENT_PERSONNES','ACTIONS','HISTORIQUE_STATUTS','RENDEZ_VOUS','PARTICIPANTS_RDV','DOCUMENTS','VERSIONS_DOCUMENTS','COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS','HISTORIQUE_PARTAGES','MODELES_COURRIELS'];
-const state = {data:{},view:'dashboard',busy:false,dossierSuivi:null,agendaDate:new Date(),agendaMode:'semaine',rdvDossier:null};
+const state = {data:{},view:'dashboard',busy:false,dossierSuivi:null,agendaDate:new Date(),agendaMode:'semaine',rdvDossier:null,archiveYear:null,returnFromDossier:'dossiers'};
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const rowsFrom = raw => {
@@ -14,7 +14,7 @@ const byId = (name,id) => tab(name).find(r=>Number(r.id)===Number(id));
 const idsFor = dossierId => tab('SIGNALEMENT_MOTIFS').filter(r=>Number(r.Signalement)===Number(dossierId)).map(r=>Number(r.Motif));
 const namesFor = dossierId => idsFor(dossierId).map(id=>byId('MOTIFS',id)?.Libelle).filter(Boolean);
 function notify(message,ok=false){$('notice').textContent=message;$('notice').className=ok?'ok':'';}
-function show(view){state.view=view;for(const el of document.querySelectorAll('.view'))el.classList.toggle('hidden',el.id!==view);for(const el of document.querySelectorAll('.nav'))el.classList.toggle('active',el.dataset.view===view);$('page-title').textContent={dashboard:'Tableau de bord',dossiers:'Signalements',users:'Référents',audit:'Contrôle des accès',suivi:'Suivi du signalement',agenda:'Agenda et rendez-vous',documents:'Comptes rendus et documents',settings:'Informations'}[view];render();}
+function show(view){if(view==='archives'&&state.view!=='suivi'&&state.view!=='archives')state.archiveYear=null;state.view=view;for(const el of document.querySelectorAll('.view'))el.classList.toggle('hidden',el.id!==view);for(const el of document.querySelectorAll('.nav'))el.classList.toggle('active',el.dataset.view===view);$('page-title').textContent={dashboard:'Tableau de bord',dossiers:'Signalements',archives:'Archives',users:'Référents',audit:'Contrôle des accès',suivi:'Suivi du signalement',agenda:'Agenda et rendez-vous',documents:'Comptes rendus et documents',settings:'Informations'}[view];render();}
 const dateText=v=>{if(!v)return '—';if(typeof v==='number')return new Date(v*1000).toLocaleDateString('fr-FR',{timeZone:'UTC'});return esc(String(v).slice(0,10));};
 function statusName(id){return byId('STATUTS',id)?.Libelle || 'Non renseigné';}
 function statusBadge(name){return `<span class="pill ${name==='Clôturé'?'done':name==='En attente'?'wait':''}">${esc(name)}</span>`;}
@@ -28,6 +28,29 @@ function sigmaArchived(record){return sigmaArchiveYear(record)>0;}
 function sigmaClosed(record){return statusName(record?.Statut).trim().toLocaleLowerCase('fr-FR')==='clôturé';}
 function sigmaVisibleActive(record){return !sigmaArchived(record);}
 function sigmaArchiveTag(record){return sigmaArchived(record)?` <span class="pill done">Archive ${sigmaArchiveYear(record)}</span>`:'';}
+// Les années affichées dans le menu Archives proviennent des dossiers réellement classés.
+function sigmaArchiveStats(records=tab('SIGNALEMENTS')){
+ const counts=new Map();
+ for(const r of records){const y=sigmaArchiveYear(r);if(y)counts.set(y,(counts.get(y)||0)+1);}
+ return [...counts].sort((x,y)=>y[0]-x[0]);
+}
+function sigmaRenderArchiveLibrary(){
+ const stats=sigmaArchiveStats();
+ const years=$('archives-years'),list=$('archives-list');
+ $('archives-total').textContent=stats.reduce((n,[,count])=>n+count,0)+' dossier(s) archivé(s)';
+ if(state.archiveYear!==null&&!stats.some(([year])=>year===state.archiveYear))state.archiveYear=null;
+ if(state.archiveYear===null){
+   years.classList.remove('hidden');list.classList.add('hidden');
+   years.innerHTML=stats.length?stats.map(([year,count])=>`<button type="button" class="sigma-archive-year" data-archive-year="${year}" aria-label="Voir ${count} dossier(s) archivé(s) en ${year}"><span class="sigma-archive-year-title">${year}</span><span class="sigma-archive-year-count">${count} dossier${count>1?'s':''}</span><span aria-hidden="true">→</span></button>`).join(''):'<p class="muted">Aucun dossier archivé pour le moment. Les années apparaîtront dès le premier archivage.</p>';
+   return;
+ }
+ years.classList.add('hidden');list.classList.remove('hidden');
+ $('archives-selected-title').textContent='Archives '+state.archiveYear;
+ const search=$('archives-search').value.trim().toLocaleLowerCase('fr-FR');
+ const items=tab('SIGNALEMENTS').filter(r=>sigmaArchiveYear(r)===state.archiveYear&&(!search||[r.Numero,r.Objet,byId('ACADEMIES',r.Academie)?.Nom,...namesFor(r.id)].join(' ').toLocaleLowerCase('fr-FR').includes(search))).sort((a,b)=>b.id-a.id);
+ $('archives-year-count').textContent=items.length+' dossier(s)';
+ $('archives-rows').innerHTML=items.map(dossierRow).join('')||'<tr><td colspan="8">Aucun dossier correspondant.</td></tr>';
+}
 function sigmaArchiveYears(){
  const thisYear=new Date().getFullYear();
  return Array.from({length:Math.min(21,thisYear-1999)},(_,i)=>thisYear-i);
@@ -143,6 +166,7 @@ if(state.view==='suivi'){renderSuivi();}
 if(state.view==='agenda'){renderAgenda();}
 if(state.view==='documents'){renderDocuments();}
 if(state.view==='audit'){renderAudit();}
+if(state.view==='archives'){sigmaRenderArchiveLibrary();}
 if(state.view==='dossiers'){const search=$('search').value.trim().toLowerCase(),statut=$('filter-status').value,motif=$('filter-motif').value,scope=$('filter-archive').value,year=$('filter-archive-year').value;const filtered=dossiers.filter(r=>(scope==='all'||(scope==='archives'?sigmaArchived(r):sigmaVisibleActive(r)))&&(!year||sigmaArchiveYear(r)===Number(year))&&(!statut||String(r.Statut)===statut)&&(!motif||idsFor(r.id).includes(Number(motif)))&&(!search||[r.Numero,r.Objet,r.Referent,byId('ACADEMIES',r.Academie)?.Nom,...namesFor(r.id)].join(' ').toLowerCase().includes(search)));$('count').textContent=`${filtered.length} dossier(s)`;$('rows').innerHTML=filtered.slice().sort((a,b)=>b.id-a.id).map(dossierRow).join('')||'<tr><td colspan="8">Aucun résultat.</td></tr>';}}
 function optionList(name,textField){return tab(name).slice().sort((a,b)=>(a.Ordre||0)-(b.Ordre||0)).map(x=>`<option value="${x.id}">${esc(x[textField])}</option>`).join('');}
 function loadSelects(){for(const [el,name,col] of [['academie','ACADEMIES','Nom'],['statut','STATUTS','Libelle']])$(el).innerHTML='<option value="">Sélectionner…</option>'+optionList(name,col);$('filter-status').innerHTML='<option value="">Tous les statuts</option>'+optionList('STATUTS','Libelle');$('filter-motif').innerHTML='<option value="">Tous les motifs</option>'+optionList('MOTIFS','Libelle');$('user-academie').innerHTML='<option value="">Sélectionner…</option>'+optionList('ACADEMIES','Nom');$('motifs').innerHTML=tab('MOTIFS').sort((a,b)=>(a.Ordre||0)-(b.Ordre||0)).map(x=>`<label><input type="checkbox" name="motif" value="${x.id}"> ${esc(x.Libelle)}</label>`).join('');}
@@ -315,7 +339,7 @@ const dossierActions=()=>tab('ACTIONS').filter(x=>Number(x.Signalement)===Number
 const dossierHistory=()=>tab('HISTORIQUE_STATUTS').filter(x=>Number(x.Signalement)===Number(state.dossierSuivi)).sort((a,b)=>(Number(b.Date_Changement)||0)-(Number(a.Date_Changement)||0));
 const roleOptions=['Personne à l’origine du signalement','Victime présumée','Personne mise en cause','Témoin','Autre personne concernée'];
 const typeActions=['Entretien','Contact','Mesure de protection','Analyse','Transmission','Relance','Autre'];
-function openSuivi(id){if(!byId('SIGNALEMENTS',id))return notify('Dossier non disponible.');state.dossierSuivi=id;show('suivi');sigmaActivateTab('suivi-tab-overview');}
+function openSuivi(id){if(!byId('SIGNALEMENTS',id))return notify('Dossier non disponible.');state.returnFromDossier=state.view==='archives'?'archives':'dossiers';state.dossierSuivi=id;show('suivi');sigmaActivateTab('suivi-tab-overview');}
 function renderSuivi(){const d=byId('SIGNALEMENTS',state.dossierSuivi);if(!d){$('suivi-title').textContent='Sélectionne un dossier dans Signalements.';$('suivi-content').classList.add('hidden');return;}$('suivi-content').classList.remove('hidden');$('suivi-title').textContent=`${d.Numero} — ${d.Objet}`;
  const members=assignedTo(d.id).map(a=>labelUser(a.Utilisateur)).filter(Boolean);
  const linkedPeople=dossierLinks().length;
@@ -362,7 +386,7 @@ async function sigmaMarkTaskDone(id){
  catch(err){notify('Mise à jour impossible : '+err.message);}
  finally{state.busy=false;}
 }
-$('suivi-back').onclick=()=>show('dossiers');
+$('suivi-back').onclick=()=>show(state.returnFromDossier==='archives'?'archives':'dossiers');
 $('suivi-edit').onclick=()=>{if(state.dossierSuivi)openForm(state.dossierSuivi);};
 document.addEventListener('click',e=>{const button=e.target.closest('[data-task-done]');if(button)sigmaMarkTaskDone(Number(button.dataset.taskDone));const jump=e.target.closest('[data-suivi-task]');if(jump){openSuivi(Number(jump.dataset.suiviTask));sigmaActivateTab('suivi-tab-1');}});document.addEventListener('click',e=>{const b=e.target.closest('[data-dossier-tab]');if(b&&state.view==='suivi')sigmaActivateTab(b.dataset.dossierTab);});$('suivi-add-person').onclick=openPersonForm;$('person-close').onclick=closePersonForm;$('person-cancel').onclick=closePersonForm;$('person-form').addEventListener('submit',savePerson);$('existing-person-form').addEventListener('submit',linkPerson);$('action-form').addEventListener('submit',saveAction);$('action-type').innerHTML=typeActions.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');$('action-date').value=new Date().toISOString().slice(0,10);$('suivi-existing-role').innerHTML=roleOptions.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');document.addEventListener('click',e=>{const open=e.target.closest('[data-suivi]');if(open)openSuivi(Number(open.dataset.suivi));const detach=e.target.closest('[data-detach]');if(detach)detachPerson(Number(detach.dataset.detach));});$('person-modal').addEventListener('click',e=>{if(e.target===$('person-modal'))closePersonForm();});
 
@@ -859,7 +883,10 @@ document.addEventListener('click',e=>{
   }
 });
 
-for(const el of document.querySelectorAll('.nav'))el.addEventListener('click',()=>show(el.dataset.view));$('add').onclick=()=>openForm();$('close').onclick=closeForm;$('cancel').onclick=closeForm;$('refresh').onclick=refresh;$('all').onclick=()=>show('dossiers');$('home-open-agenda').onclick=()=>{state.agendaDate=new Date();show('agenda');};$('record-form').addEventListener('submit',save);for(const id of ['search','filter-status','filter-motif','filter-archive','filter-archive-year'])$(id).addEventListener(id==='search'?'input':'change',render);$('clear').onclick=()=>{$('search').value='';$('filter-status').value='';$('filter-motif').value='';$('filter-archive').value='active';$('filter-archive-year').value='';sigmaLoadArchiveFilters();render();};$('filter-archive').addEventListener('change',()=>{sigmaLoadArchiveFilters();render();});$('sigma-archive-button').addEventListener('click',sigmaArchiveDossier);document.addEventListener('click',ev=>{const button=ev.target.closest('[data-edit]');if(button)openForm(Number(button.dataset.edit));});$('run-audit').onclick=refresh;$('add-user').onclick=()=>editUser();$('user-close').onclick=closeUser;$('user-cancel').onclick=closeUser;$('user-form').addEventListener('submit',saveUser);$('access-form').addEventListener('submit',saveAccess);$('access-close').onclick=closeAccess;$('access-cancel').onclick=closeAccess;document.addEventListener('click',e=>{const b=e.target.closest('[data-access-user]');if(b)openAccess(Number(b.dataset.accessUser));});$('access-modal').addEventListener('click',e=>{if(e.target===$('access-modal'))closeAccess();});document.addEventListener('click',e=>{const b=e.target.closest('[data-user-edit]');if(b)editUser(Number(b.dataset.userEdit));});$('user-modal').addEventListener('click',e=>{if(e.target===$('user-modal'))closeUser();});$('modal').addEventListener('click',ev=>{if(ev.target===$('modal'))closeForm();});document.addEventListener('keydown',ev=>{if(ev.key==='Escape'){closeForm();closeUser();closeAccess();closePersonForm();closeRdv();closeDocument();$('version-modal').classList.add('hidden');}});
+for(const el of document.querySelectorAll('.nav'))el.addEventListener('click',()=>{if(el.dataset.view==='archives'){$('archives-search').value='';state.archiveYear=null;}show(el.dataset.view);});$('add').onclick=()=>openForm();$('close').onclick=closeForm;$('cancel').onclick=closeForm;$('refresh').onclick=refresh;$('all').onclick=()=>show('dossiers');
+$('archives-back').onclick=()=>{state.archiveYear=null;$('archives-search').value='';render();};
+$('archives-search').addEventListener('input',()=>{if(state.view==='archives')render();});
+$('archives-years').addEventListener('click',e=>{const b=e.target.closest('[data-archive-year]');if(!b)return;const year=Number(b.dataset.archiveYear);if(!sigmaArchiveStats().some(([y])=>y===year))return;state.archiveYear=year;$('archives-search').value='';render();});$('home-open-agenda').onclick=()=>{state.agendaDate=new Date();show('agenda');};$('record-form').addEventListener('submit',save);for(const id of ['search','filter-status','filter-motif','filter-archive','filter-archive-year'])$(id).addEventListener(id==='search'?'input':'change',render);$('clear').onclick=()=>{$('search').value='';$('filter-status').value='';$('filter-motif').value='';$('filter-archive').value='active';$('filter-archive-year').value='';sigmaLoadArchiveFilters();render();};$('filter-archive').addEventListener('change',()=>{sigmaLoadArchiveFilters();render();});$('sigma-archive-button').addEventListener('click',sigmaArchiveDossier);document.addEventListener('click',ev=>{const button=ev.target.closest('[data-edit]');if(button)openForm(Number(button.dataset.edit));});$('run-audit').onclick=refresh;$('add-user').onclick=()=>editUser();$('user-close').onclick=closeUser;$('user-cancel').onclick=closeUser;$('user-form').addEventListener('submit',saveUser);$('access-form').addEventListener('submit',saveAccess);$('access-close').onclick=closeAccess;$('access-cancel').onclick=closeAccess;document.addEventListener('click',e=>{const b=e.target.closest('[data-access-user]');if(b)openAccess(Number(b.dataset.accessUser));});$('access-modal').addEventListener('click',e=>{if(e.target===$('access-modal'))closeAccess();});document.addEventListener('click',e=>{const b=e.target.closest('[data-user-edit]');if(b)editUser(Number(b.dataset.userEdit));});$('user-modal').addEventListener('click',e=>{if(e.target===$('user-modal'))closeUser();});$('modal').addEventListener('click',ev=>{if(ev.target===$('modal'))closeForm();});document.addEventListener('keydown',ev=>{if(ev.key==='Escape'){closeForm();closeUser();closeAccess();closePersonForm();closeRdv();closeDocument();$('version-modal').classList.add('hidden');}});
 if(typeof grist==='undefined'){notify('Ce widget doit être ouvert depuis une page Grist (API indisponible).');}else{grist.ready({requiredAccess:'full'});refresh();}
 
 
