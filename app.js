@@ -1,6 +1,6 @@
-/* SIGMA V1.0.12 TEST — préparation automatique des courriels ; ACL Grist obligatoires. */
+/* SIGMA V1.0.13 TEST — préparation automatique des courriels ; ACL Grist obligatoires. */
 'use strict';
-const TABLES = ['SIGNALEMENTS','ACADEMIES','STATUTS','MOTIFS','SIGNALEMENT_MOTIFS','UTILISATEURS','HABILITATIONS','PERSONNES','SIGNALEMENT_PERSONNES','ACTIONS','HISTORIQUE_STATUTS','RENDEZ_VOUS','PARTICIPANTS_RDV','DOCUMENTS','VERSIONS_DOCUMENTS','COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS','HISTORIQUE_PARTAGES','MODELES_COURRIELS'];
+const TABLES = ['SIGNALEMENTS','ACADEMIES','STATUTS','MOTIFS','SIGNALEMENT_MOTIFS','UTILISATEURS','HABILITATIONS','PERSONNES','SIGNALEMENT_PERSONNES','ACTIONS','HISTORIQUE_STATUTS','HISTORIQUE_ARCHIVAGE','RENDEZ_VOUS','PARTICIPANTS_RDV','DOCUMENTS','VERSIONS_DOCUMENTS','COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS','HISTORIQUE_PARTAGES','MODELES_COURRIELS'];
 const state = {data:{},view:'dashboard',busy:false,dossierSuivi:null,agendaDate:new Date(),agendaMode:'semaine',rdvDossier:null,archiveYear:null,returnFromDossier:'dossiers'};
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -55,6 +55,18 @@ function sigmaArchiveYears(){
  const thisYear=new Date().getFullYear();
  return Array.from({length:Math.min(21,thisYear-1999)},(_,i)=>thisYear-i);
 }
+// Historique conservé dans Grist : Auteur_Email et Date_Operation sont des formules de déclenchement,
+// jamais des valeurs déclarées par le navigateur. Sans ces formules, le journal n'est pas certifié.
+function sigmaArchiveHistory(dossierId){
+ return tab('HISTORIQUE_ARCHIVAGE').filter(r=>Number(r.Signalement)===Number(dossierId))
+  .sort((a,b)=>(Number(b.Date_Operation)||0)-(Number(a.Date_Operation)||0)||Number(b.id)-Number(a.id));
+}
+function sigmaRenderArchiveHistory(){
+ const list=$('sigma-archive-history-list');if(!list)return;
+ const rows=sigmaArchiveHistory(state.dossierSuivi);
+ $('sigma-archive-history-count').textContent=`${rows.length} opération(s)`;
+ list.innerHTML=rows.length?rows.map(r=>`<li class="sigma-archive-history-item"><strong>${esc(r.Operation==='RESTAURATION'?'Restauration':'Archivage')}</strong><span>${dateText(r.Date_Operation)} · ${esc(r.Auteur_Email||'Auteur non renseigné')}</span><span>${r.Annee_Avant?`Année précédente : ${esc(r.Annee_Avant)}`:'Non archivé'} → ${r.Annee_Apres?`Année : ${esc(r.Annee_Apres)}`:'Dossiers actifs'}</span>${r.Motif?`<span>Motif : ${esc(r.Motif)}</span>`:''}</li>`).join(''):'<li class="muted">Aucune opération d’archivage enregistrée dans le journal.</li>';
+}
 async function sigmaArchiveDossier(){
  const id=Number(state.dossierSuivi),original=byId('SIGNALEMENTS',id);
  if(!original||state.busy)return;
@@ -62,21 +74,32 @@ async function sigmaArchiveDossier(){
  if(!archived&&!sigmaClosed(original))return notify('Seuls les dossiers clôturés peuvent être archivés.');
  const year=Number($('sigma-archive-year').value);
  if(!archived&&(!Number.isInteger(year)||year<2000||year>new Date().getFullYear()))return notify('Sélectionne une année de classement valide.');
- const question=archived?'Restaurer ce dossier dans les signalements actifs ? Le statut restera Clôturé.':`Archiver le dossier ${original.Numero||id} dans l’année ${year} ? Il restera consultable et aucune donnée ne sera supprimée.`;
+ const motif=$('sigma-archive-reason').value.trim();
+ if(motif.length>500)return notify('Le motif est limité à 500 caractères.');
+ if(archived&&!motif)return notify('Indique un motif pour restaurer ce dossier.');
+ const question=archived?'Restaurer ce dossier dans les signalements actifs ? Le statut restera Clôturé.':`Archiver le dossier ${original.Numero||id} dans l’année ${year} ? Il restera consultable.`;
  if(!confirm(question))return;
  state.busy=true;$('sigma-archive-button').disabled=true;
  try{
-   // Contrôle immédiat avant écriture ; l'interface ne remplace pas une ACL serveur.
+   // Relecture des données. Le contrôle simultané multi-utilisateurs doit aussi être garanti côté Grist.
    const current=rowsFrom(await grist.docApi.fetchTable('SIGNALEMENTS')).find(r=>Number(r.id)===id);
    if(!current)throw new Error('Dossier introuvable après relecture.');
    if(sigmaArchiveYear(current)!==sigmaArchiveYear(original))throw new Error('Le classement a été modifié par un autre utilisateur. Actualise SIGMA.');
    if(!archived&&!sigmaClosed(current))throw new Error('Le dossier n’est plus clôturé.');
-   await grist.docApi.applyUserActions([['UpdateRecord','SIGNALEMENTS',id,{Annee_Archivage:archived?null:year}]]);
+   const before=sigmaArchiveYear(current),after=archived?0:year;
+   // Les deux actions doivent réussir dans le même appel, faute de quoi aucun changement n'est confirmé.
+   await grist.docApi.applyUserActions([
+     ['UpdateRecord','SIGNALEMENTS',id,{Annee_Archivage:archived?null:year}],
+     ['AddRecord','HISTORIQUE_ARCHIVAGE',null,{Signalement:id,Operation:archived?'RESTAURATION':'ARCHIVAGE',Annee_Avant:before||null,Annee_Apres:after||null,Motif:motif}]
+   ]);
    const verify=rowsFrom(await grist.docApi.fetchTable('SIGNALEMENTS')).find(r=>Number(r.id)===id);
-   if(sigmaArchiveYear(verify)!==(archived?0:year))throw new Error('Classement non confirmé. Vérifie la table SIGNALEMENTS.');
+   if(sigmaArchiveYear(verify)!==after)throw new Error('Classement non confirmé. Vérifie la table SIGNALEMENTS.');
+   const history=rowsFrom(await grist.docApi.fetchTable('HISTORIQUE_ARCHIVAGE')).filter(r=>Number(r.Signalement)===id);
+   if(!history.some(r=>r.Operation===(archived?'RESTAURATION':'ARCHIVAGE')&&Number(r.Annee_Avant||0)===before&&Number(r.Annee_Apres||0)===after))throw new Error('La ligne d’historique n’a pas été retrouvée : vérifie les autorisations et le journal.');
+   $('sigma-archive-reason').value='';
    await refresh();
-   notify(archived?'Dossier réintégré dans les signalements actifs.':'Dossier classé dans les archives '+year+'.',true);
- }catch(e){notify('Archivage non confirmé : '+e.message);}finally{state.busy=false;$('sigma-archive-button').disabled=false;}
+   notify(archived?'Dossier restauré ; opération inscrite au journal.':`Dossier archivé en ${year} ; opération inscrite au journal.`,true);
+ }catch(e){notify('Opération non confirmée : '+e.message);}finally{state.busy=false;$('sigma-archive-button').disabled=false;}
 }
 function sigmaRenderArchiveControl(record){
  const box=$('sigma-archive-control');if(!box)return;
@@ -91,6 +114,8 @@ function sigmaRenderArchiveControl(record){
  $('sigma-archive-button').textContent=archived?'Restaurer dans les dossiers actifs':'Archiver ce dossier';
  $('sigma-archive-button').classList.toggle('hidden',!archived&&!closed);
  $('sigma-archive-button').disabled=state.busy;
+ $('sigma-archive-reason-label').textContent=archived?'Motif de restauration (obligatoire)':'Motif d’archivage (facultatif)';
+ sigmaRenderArchiveHistory();
 }
 function dossierRow(r){return `<tr><td><strong>${esc(r.Numero||'—')}</strong></td><td>${esc(r.Objet)}</td><td>${esc(byId('ACADEMIES',r.Academie)?.Nom||'—')}</td><td>${esc(namesFor(r.id).join(', ')||'—')}</td><td>${esc(assignedTo(r.id).map(a=>labelUser(a.Utilisateur)).join(', ')||'—')}</td><td>${statusBadge(statusName(r.Statut))}${sigmaArchiveTag(r)}</td><td>${dateText(r.Date_Reception)}</td><td><button class="row-button" data-edit="${r.id}">Modifier</button> <button class="row-button" data-suivi="${r.id}">Ouvrir le dossier</button></td></tr>`;}
 // Accueil : informations d'agenda limitées et sans donnée nominative.
@@ -339,7 +364,7 @@ const dossierActions=()=>tab('ACTIONS').filter(x=>Number(x.Signalement)===Number
 const dossierHistory=()=>tab('HISTORIQUE_STATUTS').filter(x=>Number(x.Signalement)===Number(state.dossierSuivi)).sort((a,b)=>(Number(b.Date_Changement)||0)-(Number(a.Date_Changement)||0));
 const roleOptions=['Personne à l’origine du signalement','Victime présumée','Personne mise en cause','Témoin','Autre personne concernée'];
 const typeActions=['Entretien','Contact','Mesure de protection','Analyse','Transmission','Relance','Autre'];
-function openSuivi(id){if(!byId('SIGNALEMENTS',id))return notify('Dossier non disponible.');state.returnFromDossier=state.view==='archives'?'archives':'dossiers';state.dossierSuivi=id;show('suivi');sigmaActivateTab('suivi-tab-overview');}
+function openSuivi(id){if(!byId('SIGNALEMENTS',id))return notify('Dossier non disponible.');state.returnFromDossier=state.view==='archives'?'archives':'dossiers';state.dossierSuivi=id;$('sigma-archive-reason').value='';$('sigma-archive-history').open=false;show('suivi');sigmaActivateTab('suivi-tab-overview');}
 function renderSuivi(){const d=byId('SIGNALEMENTS',state.dossierSuivi);if(!d){$('suivi-title').textContent='Sélectionne un dossier dans Signalements.';$('suivi-content').classList.add('hidden');return;}$('suivi-content').classList.remove('hidden');$('suivi-title').textContent=`${d.Numero} — ${d.Objet}`;
  const members=assignedTo(d.id).map(a=>labelUser(a.Utilisateur)).filter(Boolean);
  const linkedPeople=dossierLinks().length;
