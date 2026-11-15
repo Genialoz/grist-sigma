@@ -1,4 +1,4 @@
-/* SIGMA V1.0.14 TEST — préparation automatique des courriels ; ACL Grist obligatoires. */
+/* SIGMA V1.0.15 TEST — préparation automatique des courriels ; ACL Grist obligatoires. */
 'use strict';
 const TABLES = ['SIGNALEMENTS','ACADEMIES','STATUTS','MOTIFS','SIGNALEMENT_MOTIFS','UTILISATEURS','HABILITATIONS','PERSONNES','SIGNALEMENT_PERSONNES','ACTIONS','HISTORIQUE_STATUTS','HISTORIQUE_ARCHIVAGE','RENDEZ_VOUS','PARTICIPANTS_RDV','DOCUMENTS','VERSIONS_DOCUMENTS','COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS','HISTORIQUE_PARTAGES','CONSULTATIONS_INVITEES','MODELES_COURRIELS'];
 const state = {data:{},view:'dashboard',busy:false,dossierSuivi:null,agendaDate:new Date(),agendaMode:'semaine',rdvDossier:null,archiveYear:null,returnFromDossier:'dossiers'};
@@ -646,9 +646,9 @@ function renderDocumentCollaboration(doc){
     const status=expired&&p.Statut==='Projet'?'Échéance dépassée (projet)':p.Statut;
     const history=tab('HISTORIQUE_PARTAGES').filter(e=>Number(e.Partage)===Number(p.id)).sort((a,b)=>Number(b.Date_Evenement)-Number(a.Date_Evenement)||b.id-a.id);
     const consult=tab('CONSULTATIONS_INVITEES').find(x=>Number(x.Partage_ID)===Number(p.id));
-    const consultInfo=consult?`<p class="muted">Copie de consultation : <strong>${esc(consult.Statut||'Préparé')}</strong> (ligne ${consult.id}) · <strong>${esc(consult.Email||'')}</strong>. ${consult.Statut==='Actif'?'Révoquer immédiatement dans Grist si nécessaire.':'Non accessible aux invités tant que non activée.'}</p>`:'';
-    const prepareBtn=p.Statut==='Vérifié' && !expired && ver && !consult ? `<button type="button" class="row-button" data-share-snapshot="${p.id}">Préparer copie isolée (TEST)</button>` : '';
-    const actions=p.Statut==='Projet' ? `<button type="button" class="row-button" data-share-review="${p.id}" ${expired||!ver?'disabled':''}>Vérifier</button> <button type="button" class="row-button" data-share-reject="${p.id}">Refuser</button> <button type="button" class="row-button" data-share-cancel="${p.id}">Annuler</button>` : (p.Statut==='Vérifié' ? `<button type="button" class="row-button" data-share-cancel="${p.id}">Révoquer la demande</button>` : '');
+    const consultInfo=consult?`<p class="muted">Document préparé : <strong>${esc(consult.Statut||'Préparé')}</strong> (ligne ${consult.id}) · <strong>${esc(consult.Email||'')}</strong>. ${consult.Statut==='Actif'?'Révoquer immédiatement dans Grist si nécessaire.':'En attente d’autorisation technique : aucun accès invité.'}</p>`:'';
+    const prepareBtn=p.Statut==='Vérifié' && !expired && ver && !consult ? `<button type="button" class="row-button" data-share-snapshot="${p.id}">Finaliser une ancienne demande</button>` : '';
+    const actions=p.Statut==='Projet' ? `<button type="button" class="row-button" data-share-review="${p.id}" ${expired||!ver?'disabled':''}>Valider la préparation</button> <button type="button" class="row-button" data-share-reject="${p.id}">Refuser</button> <button type="button" class="row-button" data-share-cancel="${p.id}">Annuler</button>` : (p.Statut==='Vérifié' ? `<button type="button" class="row-button" data-share-cancel="${p.id}">Révoquer la demande</button>` : '');
     return `<div class="collab-item"><div><strong>${esc(p.Destinataire)}</strong> <span class="pill ${['Annulé','Refusé'].includes(p.Statut)?'done':'wait'}">${esc(status)}</span><small>${esc(p.Email)} · ${esc(p.Droit)} · ${ver?'Version '+esc(ver.Numero_Version):'Version non spécifiée (ancien projet)'} · échéance ${dateText(p.Expiration)} · ${prettyDateTime(p.Date_Creation)}</small><p class="comment-text">${esc(p.Message||'Aucun message')}</p><p class="muted"><strong>La demande seule ne donne aucun accès.</strong></p>${consultInfo}<details class="share-log"><summary>Historique des décisions (${history.length})</summary>${history.map(e=>`<p><small>${prettyDateTime(e.Date_Evenement)} · ${esc(e.Action)} · ${esc(e.Auteur)} — ${esc(e.Motif||'Sans motif')}</small></p>`).join('')||'<p>Aucune décision enregistrée.</p>'}</details></div><div class="share-actions">${prepareBtn} ${actions}</div></div>`;
   }).join('')||'<p class="muted">Aucune demande de partage enregistrée.</p>';
   renderMailChoices(doc);
@@ -708,7 +708,7 @@ async function prepareDocumentShare(ev){
     await reloadDocumentCollaboration(docId);
     if(!documentShares(docId).some(p=>p.Email===email&&p.Statut==='Projet'&&Number(p.Date_Creation)===now))throw new Error('Projet non retrouvé après écriture.');
     $('share-form').reset();$('share-doc-id').value=docId;
-    notify('Projet de partage enregistré. Aucun accès, courriel ou lien n’a été créé.',true);
+    notify('Demande enregistrée. Clique sur « Valider la préparation » pour préparer le document sans donner accès au destinataire.',true);
   }catch(e){notify('Enregistrement du projet de partage incertain : '+e.message+' Vérifiez la table avant de recommencer.');}
   finally{state.busy=false;btn.disabled=false;}
 }
@@ -723,7 +723,7 @@ async function sigmaPrepareConsultation(partageId){
  if(Number(p.Expiration)+86400<=Date.now()/1000)return notify('Demande expirée : crée une nouvelle demande.');
  if(!['lecture','commentaire'].includes(p.Droit)||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(p.Email))return notify('Adresse ou droit invalide.');
  if(tab('CONSULTATIONS_INVITEES').some(x=>Number(x.Partage_ID)===partageId))return notify('Une copie existe déjà pour cette demande.');
- if(!confirm('Préparer une copie isolée de cette version ? Elle restera DÉSACTIVÉE. Ne partage aucun lien avant validation de toutes les ACL Grist.'))return;
+ if(!confirm('Finaliser cette ancienne demande ? Le document restera inaccessible au destinataire.'))return;
  state.busy=true;
  try{
   const fields={Partage_ID:partageId,Email:String(p.Email).trim().toLowerCase(),Droit:p.Droit,Expiration:Number(p.Expiration),Statut:'Préparé',Titre:String(doc.Titre||''),Version_Numero:Number(version.Numero_Version)||1,Contenu:String(version.Contenu||''),Observation_Invite:''};
@@ -744,6 +744,7 @@ async function decideShare(id,nextStatus,reason){
     const version=byId('VERSIONS_DOCUMENTS',share.Version);
     if(share.Statut!=='Projet'||!version||Number(version.Document)!==Number(doc.id)||version.Statut!=='Validé'||doc.Statut!=='Validé')return notify('Vérification impossible : document/version non validé ou ancienne demande sans version.');
     if(Number(share.Expiration)+86400<=Date.now()/1000)return notify('Échéance dépassée : annulez et recréez une demande.');
+    if(!['lecture','commentaire'].includes(share.Droit)||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(share.Email||'')))return notify('Adresse ou droit invalide.');
   }
   if(nextStatus==='Refusé'&&share.Statut!=='Projet')return notify('Seuls les projets peuvent être refusés.');
   if(nextStatus==='Annulé'&&!['Projet','Vérifié'].includes(share.Statut))return notify('Annulation impossible.');
@@ -756,14 +757,24 @@ async function decideShare(id,nextStatus,reason){
       ['UpdateRecord','PARTAGES_DOCUMENTS',id,{Statut:nextStatus}],
       ['AddRecord','HISTORIQUE_PARTAGES',null,{Partage:id,Action:nextStatus,Statut_Avant:share.Statut,Date_Evenement:now,Auteur:author,Motif:reason.trim().slice(0,500)}]
     ];
+    // V1.0.15 : la validation prépare la copie en une seule transaction Grist.
+    // Le statut Préparé n'ouvre aucun accès invité. Aucune invitation n'est envoyée.
+    if(nextStatus==='Vérifié'&&!linked.length){
+      const version=byId('VERSIONS_DOCUMENTS',share.Version);
+      const snapshot={Partage_ID:id,Email:String(share.Email).trim().toLowerCase(),Droit:share.Droit,
+        Expiration:Number(share.Expiration),Statut:'Préparé',Titre:String(doc.Titre||''),
+        Version_Numero:Number(version.Numero_Version)||1,Contenu:String(version.Contenu||''),Observation_Invite:''};
+      actions.push(['AddRecord','CONSULTATIONS_INVITEES',null,snapshot]);
+    }
     if(nextStatus==='Annulé'||nextStatus==='Refusé')for(const x of linked)actions.push(['UpdateRecord','CONSULTATIONS_INVITEES',x.id,{Statut:'Révoqué'}]);
     await grist.docApi.applyUserActions(actions);
     state.data.CONSULTATIONS_INVITEES=rowsFrom(await grist.docApi.fetchTable('CONSULTATIONS_INVITEES'));
     await reloadDocumentCollaboration(doc.id);
     const updated=byId('PARTAGES_DOCUMENTS',id);
     const logged=tab('HISTORIQUE_PARTAGES').some(e=>Number(e.Partage)===id&&e.Action===nextStatus&&Number(e.Date_Evenement)===now);
-    if(updated?.Statut!==nextStatus||!logged)throw new Error('Mise à jour ou historique non retrouvé après écriture.');
-    notify('Décision enregistrée et journalisée. Aucun droit ni accès externe créé.',true);
+    const prepared=nextStatus!=='Vérifié'||tab('CONSULTATIONS_INVITEES').some(x=>Number(x.Partage_ID)===id&&x.Statut==='Préparé');
+    if(updated?.Statut!==nextStatus||!logged||!prepared)throw new Error('Mise à jour, copie ou historique non retrouvé après écriture.');
+    notify(nextStatus==='Vérifié'?'Demande validée : document préparé automatiquement, accès invité désactivé.':'Décision enregistrée et journalisée. Aucun accès externe créé.',true);
   }catch(e){notify('Décision non confirmée : '+e.message+' Vérifiez les deux tables avant de réessayer.');}
   finally{state.busy=false;}
 }
@@ -933,7 +944,7 @@ document.addEventListener('click',e=>{
   for(const [selector,status] of [['[data-share-review]','Vérifié'],['[data-share-reject]','Refusé'],['[data-share-cancel]','Annulé']]){
     const b=e.target.closest(selector);if(!b)continue;
     const id=Number(b.dataset.shareReview||b.dataset.shareReject||b.dataset.shareCancel);
-    const reason=prompt(status==='Vérifié'?'Justification de la vérification interne (aucun accès accordé) :':status==='Refusé'?'Motif du refus :':'Motif de l’annulation ou de la révocation de la demande :');
+    const reason=prompt(status==='Vérifié'?'Motif de validation (le document sera préparé, sans accès invité) :':status==='Refusé'?'Motif du refus :':'Motif de l’annulation ou de la révocation de la demande :');
     if(reason!==null)decideShare(id,status,reason);break;
   }
 });
