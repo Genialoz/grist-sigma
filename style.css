@@ -78,3 +78,21 @@
 #document-collaboration .sigma-fold{margin:10px 0}
 #document-collaboration .sigma-fold-body{padding:14px}
 @media(max-width:700px){.sigma-fold-body{padding:12px}.sigma-fold-toolbar span{width:100%}.sigma-fold > summary{padding:12px}}
+
+/* SIGMA V1.0.3 — Navigation par onglets accessible */
+.sigma-tabs{display:flex;flex-wrap:wrap;align-items:center;gap:6px;border-bottom:1px solid #d7e1eb;margin:12px 0 16px;padding-bottom:8px}
+.sigma-tab{appearance:none;border:1px solid #cbd8e4;background:#f5f8fc;color:#27445c;padding:10px 13px;border-radius:8px;font-weight:600;cursor:pointer;min-height:42px}
+.sigma-tab:hover:not(:disabled){background:#e6eff8}
+.sigma-tab.active{background:#153f63;color:#fff;border-color:#153f63}
+.sigma-tab:disabled{opacity:.45;cursor:not-allowed}
+.sigma-tab:focus-visible{outline:3px solid #2b8bbd;outline-offset:2px}
+.sigma-tab-panel{min-width:0}
+.sigma-tabs + .suivi-section{margin-top:0}
+#suivi-content > .suivi-section .sigma-fold{border:0;box-shadow:none}
+#suivi-content > .suivi-section .sigma-fold > summary{display:none}
+#suivi-content > .suivi-section .sigma-fold-body{padding:0}
+#document-tab-history #document-versions{margin-top:0}
+#document-tab-history #document-versions .sigma-fold{border:0}
+#document-tab-history #document-versions .sigma-fold > summary{display:none}
+#document-tab-collab #document-collaboration{margin-top:0}
+@media(max-width:650px){.sigma-tabs{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:thin}.sigma-tab{white-space:nowrap;flex-shrink:0}.sigma-document-tabs{position:static}}

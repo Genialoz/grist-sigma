@@ -188,7 +188,7 @@ const dossierActions=()=>tab('ACTIONS').filter(x=>Number(x.Signalement)===Number
 const dossierHistory=()=>tab('HISTORIQUE_STATUTS').filter(x=>Number(x.Signalement)===Number(state.dossierSuivi)).sort((a,b)=>(Number(b.Date_Changement)||0)-(Number(a.Date_Changement)||0));
 const roleOptions=['Personne à l’origine du signalement','Victime présumée','Personne mise en cause','Témoin','Autre personne concernée'];
 const typeActions=['Entretien','Contact','Mesure de protection','Analyse','Transmission','Relance','Autre'];
-function openSuivi(id){if(!byId('SIGNALEMENTS',id))return notify('Dossier non disponible.');state.dossierSuivi=id;show('suivi');}
+function openSuivi(id){if(!byId('SIGNALEMENTS',id))return notify('Dossier non disponible.');state.dossierSuivi=id;show('suivi');sigmaActivateTab('suivi-tab-0');}
 function renderSuivi(){const d=byId('SIGNALEMENTS',state.dossierSuivi);if(!d){$('suivi-title').textContent='Sélectionne un dossier dans Signalements.';$('suivi-content').classList.add('hidden');return;}$('suivi-content').classList.remove('hidden');$('suivi-title').textContent=`${d.Numero} — ${d.Objet}`;
  $('suivi-personnes').innerHTML=dossierLinks().map(l=>{const person=byId('PERSONNES',l.Personne);return `<tr><td>${esc(person?.Libelle||'—')}</td><td>${esc(l.Role)}</td><td>${esc(person?.Categorie||'—')}</td><td><button type="button" class="row-button" data-detach="${l.id}">Retirer du dossier</button></td></tr>`;}).join('')||'<tr><td colspan="4">Aucune personne associée.</td></tr>';
  $('suivi-actions').innerHTML=dossierActions().map(a=>`<tr><td>${dateText(a.Date_Action)}</td><td>${esc(a.Type_Action)}</td><td>${esc(a.Description)}</td><td>${esc(a.Etat)}</td></tr>`).join('')||'<tr><td colspan="4">Aucune action enregistrée.</td></tr>';
@@ -345,7 +345,7 @@ function openDocument(id=null,dossier=null){
   const versions=doc?docVersions(doc.id):[];
   $('document-content').value=versions[0]?.Contenu||'';
   if(doc)renderVersions(doc);else{$('document-versions').classList.add('hidden');$('document-versions-list').innerHTML='';}
-  docEditMode(doc);renderDocumentCollaboration(doc);$('document-modal').classList.remove('hidden');
+  docEditMode(doc);renderDocumentCollaboration(doc);sigmaDocumentTabAvailability(!!doc);sigmaActivateTab('document-tab-edit');$('document-modal').classList.remove('hidden');
 }
 function closeDocument(){$('document-modal').classList.add('hidden');}
 async function saveDocument(validate=false){
@@ -693,7 +693,7 @@ for(const el of document.querySelectorAll('.nav'))el.addEventListener('click',()
 if(typeof grist==='undefined'){notify('Ce widget doit être ouvert depuis une page Grist (API indisponible).');}else{grist.ready({requiredAccess:'full'});refresh();}
 
 
-// SIGMA V1.0.2 - commandes de confort pour rubriques du suivi.
+// SIGMA V1.0.3 - commandes de confort pour rubriques du suivi.
 // Utilise les éléments natifs <details> : aucune incidence sur les ACL ou les écritures.
 document.querySelectorAll('[data-fold-action][data-fold-target]').forEach(button => {
   button.addEventListener('click', () => {
@@ -702,5 +702,42 @@ document.querySelectorAll('[data-fold-action][data-fold-target]').forEach(button
     parent.querySelectorAll('details.sigma-fold').forEach(d => {
       d.open = button.dataset.foldAction === 'expand';
     });
+  });
+});
+
+// SIGMA V1.0.3 — Navigation contextuelle, sans écriture Grist ni changement ACL.
+function sigmaActivateTab(target){
+  const btn=document.querySelector(`[data-tab-target="${target}"]`);
+  if(!btn||btn.disabled)return;
+  const tabs=btn.closest('[data-sigma-tabs]');
+  if(!tabs)return;
+  for(const other of tabs.querySelectorAll('[role="tab"]')){
+    const active=other===btn;
+    other.classList.toggle('active',active);
+    other.setAttribute('aria-selected',String(active));
+    other.tabIndex=active?0:-1;
+    const panel=document.getElementById(other.dataset.tabTarget);
+    if(panel){panel.classList.toggle('hidden',!active);if(active){
+      for(const fold of panel.querySelectorAll('details.sigma-fold'))fold.open=true;
+    }}
+  }
+}
+function sigmaDocumentTabAvailability(exists){
+  for(const id of ['btn-document-tab-history','btn-document-tab-collab']){
+    const btn=document.getElementById(id);if(btn)btn.disabled=!exists;
+  }
+}
+document.querySelectorAll('[data-sigma-tabs]').forEach(tablist=>{
+  tablist.addEventListener('click',e=>{
+    const button=e.target.closest('button[data-tab-target]');
+    if(button)sigmaActivateTab(button.dataset.tabTarget);
+  });
+  tablist.addEventListener('keydown',e=>{
+    if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;
+    const buttons=[...tablist.querySelectorAll('[role="tab"]')].filter(b=>!b.disabled);
+    const i=buttons.indexOf(document.activeElement);if(i===-1)return;
+    e.preventDefault();
+    const next=e.key==='Home'?0:e.key==='End'?buttons.length-1:(i+(e.key==='ArrowRight'?1:-1)+buttons.length)%buttons.length;
+    sigmaActivateTab(buttons[next].dataset.tabTarget);buttons[next].focus();
   });
 });
