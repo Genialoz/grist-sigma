@@ -1,6 +1,6 @@
-/* SIGMA V1.0.13 TEST — préparation automatique des courriels ; ACL Grist obligatoires. */
+/* SIGMA V1.0.14 TEST — préparation automatique des courriels ; ACL Grist obligatoires. */
 'use strict';
-const TABLES = ['SIGNALEMENTS','ACADEMIES','STATUTS','MOTIFS','SIGNALEMENT_MOTIFS','UTILISATEURS','HABILITATIONS','PERSONNES','SIGNALEMENT_PERSONNES','ACTIONS','HISTORIQUE_STATUTS','HISTORIQUE_ARCHIVAGE','RENDEZ_VOUS','PARTICIPANTS_RDV','DOCUMENTS','VERSIONS_DOCUMENTS','COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS','HISTORIQUE_PARTAGES','MODELES_COURRIELS'];
+const TABLES = ['SIGNALEMENTS','ACADEMIES','STATUTS','MOTIFS','SIGNALEMENT_MOTIFS','UTILISATEURS','HABILITATIONS','PERSONNES','SIGNALEMENT_PERSONNES','ACTIONS','HISTORIQUE_STATUTS','HISTORIQUE_ARCHIVAGE','RENDEZ_VOUS','PARTICIPANTS_RDV','DOCUMENTS','VERSIONS_DOCUMENTS','COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS','HISTORIQUE_PARTAGES','CONSULTATIONS_INVITEES','MODELES_COURRIELS'];
 const state = {data:{},view:'dashboard',busy:false,dossierSuivi:null,agendaDate:new Date(),agendaMode:'semaine',rdvDossier:null,archiveYear:null,returnFromDossier:'dossiers'};
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -645,8 +645,11 @@ function renderDocumentCollaboration(doc){
     const expired=Number(p.Expiration)>0 && Number(p.Expiration)+86400<=now;
     const status=expired&&p.Statut==='Projet'?'Échéance dépassée (projet)':p.Statut;
     const history=tab('HISTORIQUE_PARTAGES').filter(e=>Number(e.Partage)===Number(p.id)).sort((a,b)=>Number(b.Date_Evenement)-Number(a.Date_Evenement)||b.id-a.id);
+    const consult=tab('CONSULTATIONS_INVITEES').find(x=>Number(x.Partage_ID)===Number(p.id));
+    const consultInfo=consult?`<p class="muted">Copie de consultation : <strong>${esc(consult.Statut||'Préparé')}</strong> (ligne ${consult.id}) · <strong>${esc(consult.Email||'')}</strong>. ${consult.Statut==='Actif'?'Révoquer immédiatement dans Grist si nécessaire.':'Non accessible aux invités tant que non activée.'}</p>`:'';
+    const prepareBtn=p.Statut==='Vérifié' && !expired && ver && !consult ? `<button type="button" class="row-button" data-share-snapshot="${p.id}">Préparer copie isolée (TEST)</button>` : '';
     const actions=p.Statut==='Projet' ? `<button type="button" class="row-button" data-share-review="${p.id}" ${expired||!ver?'disabled':''}>Vérifier</button> <button type="button" class="row-button" data-share-reject="${p.id}">Refuser</button> <button type="button" class="row-button" data-share-cancel="${p.id}">Annuler</button>` : (p.Statut==='Vérifié' ? `<button type="button" class="row-button" data-share-cancel="${p.id}">Révoquer la demande</button>` : '');
-    return `<div class="collab-item"><div><strong>${esc(p.Destinataire)}</strong> <span class="pill ${['Annulé','Refusé'].includes(p.Statut)?'done':'wait'}">${esc(status)}</span><small>${esc(p.Email)} · ${esc(p.Droit)} · ${ver?'Version '+esc(ver.Numero_Version):'Version non spécifiée (ancien projet)'} · échéance ${dateText(p.Expiration)} · ${prettyDateTime(p.Date_Creation)}</small><p class="comment-text">${esc(p.Message||'Aucun message')}</p><p class="muted"><strong>Aucun accès ni lien créé, quel que soit le statut.</strong></p><details class="share-log"><summary>Historique des décisions (${history.length})</summary>${history.map(e=>`<p><small>${prettyDateTime(e.Date_Evenement)} · ${esc(e.Action)} · ${esc(e.Auteur)} — ${esc(e.Motif||'Sans motif')}</small></p>`).join('')||'<p>Aucune décision enregistrée.</p>'}</details></div><div class="share-actions">${actions}</div></div>`;
+    return `<div class="collab-item"><div><strong>${esc(p.Destinataire)}</strong> <span class="pill ${['Annulé','Refusé'].includes(p.Statut)?'done':'wait'}">${esc(status)}</span><small>${esc(p.Email)} · ${esc(p.Droit)} · ${ver?'Version '+esc(ver.Numero_Version):'Version non spécifiée (ancien projet)'} · échéance ${dateText(p.Expiration)} · ${prettyDateTime(p.Date_Creation)}</small><p class="comment-text">${esc(p.Message||'Aucun message')}</p><p class="muted"><strong>La demande seule ne donne aucun accès.</strong></p>${consultInfo}<details class="share-log"><summary>Historique des décisions (${history.length})</summary>${history.map(e=>`<p><small>${prettyDateTime(e.Date_Evenement)} · ${esc(e.Action)} · ${esc(e.Auteur)} — ${esc(e.Motif||'Sans motif')}</small></p>`).join('')||'<p>Aucune décision enregistrée.</p>'}</details></div><div class="share-actions">${prepareBtn} ${actions}</div></div>`;
   }).join('')||'<p class="muted">Aucune demande de partage enregistrée.</p>';
   renderMailChoices(doc);
 }
@@ -665,7 +668,7 @@ function renderReadVersion(doc){
 }
 $('comment-version').addEventListener('change',()=>renderReadVersion(currentDoc()));
 async function reloadDocumentCollaboration(docId){
-  for(const name of ['COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS','HISTORIQUE_PARTAGES'])state.data[name]=rowsFrom(await grist.docApi.fetchTable(name));
+  for(const name of ['COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS','HISTORIQUE_PARTAGES','CONSULTATIONS_INVITEES'])state.data[name]=rowsFrom(await grist.docApi.fetchTable(name));
   renderDocumentCollaboration(byId('DOCUMENTS',docId));
 }
 async function addDocumentComment(ev){
@@ -709,6 +712,28 @@ async function prepareDocumentShare(ev){
   }catch(e){notify('Enregistrement du projet de partage incertain : '+e.message+' Vérifiez la table avant de recommencer.');}
   finally{state.busy=false;btn.disabled=false;}
 }
+// V1.0.14 TEST — copie de lecture isolée : aucun droit activé automatiquement.
+// Ne jamais utiliser PARTAGES_DOCUMENTS comme justification suffisante pour exposer les tables sources.
+async function sigmaPrepareConsultation(partageId){
+ if(state.busy)return;
+ const p=byId('PARTAGES_DOCUMENTS',partageId),doc=currentDoc();
+ if(!p||!doc||Number(p.Document)!==Number(doc.id)||p.Statut!=='Vérifié'||doc.Statut!=='Validé')return notify('La demande et le document doivent être vérifiés et validés.');
+ const version=byId('VERSIONS_DOCUMENTS',p.Version);
+ if(!version||Number(version.Document)!==Number(doc.id)||version.Statut!=='Validé')return notify('Version validée introuvable.');
+ if(Number(p.Expiration)+86400<=Date.now()/1000)return notify('Demande expirée : crée une nouvelle demande.');
+ if(!['lecture','commentaire'].includes(p.Droit)||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(p.Email))return notify('Adresse ou droit invalide.');
+ if(tab('CONSULTATIONS_INVITEES').some(x=>Number(x.Partage_ID)===partageId))return notify('Une copie existe déjà pour cette demande.');
+ if(!confirm('Préparer une copie isolée de cette version ? Elle restera DÉSACTIVÉE. Ne partage aucun lien avant validation de toutes les ACL Grist.'))return;
+ state.busy=true;
+ try{
+  const fields={Partage_ID:partageId,Email:String(p.Email).trim().toLowerCase(),Droit:p.Droit,Expiration:Number(p.Expiration),Statut:'Préparé',Titre:String(doc.Titre||''),Version_Numero:Number(version.Numero_Version)||1,Contenu:String(version.Contenu||''),Observation_Invite:''};
+  await grist.docApi.applyUserActions([['AddRecord','CONSULTATIONS_INVITEES',null,fields]]);
+  await reloadDocumentCollaboration(doc.id);
+  if(!tab('CONSULTATIONS_INVITEES').some(x=>Number(x.Partage_ID)===partageId&&x.Statut==='Préparé'&&x.Contenu===fields.Contenu))throw new Error('Copie non retrouvée : contrôle manuel nécessaire.');
+  notify('Copie de consultation préparée (désactivée). Configure et teste toutes les ACL avant tout accès invité.',true);
+ }catch(e){notify('Préparation de la copie non confirmée : '+e.message);}
+ finally{state.busy=false;}
+}
 // V0.9 : décision interne journalisée. Il n'existe toujours PAS de droit externe.
 async function decideShare(id,nextStatus,reason){
   if(state.busy)return;
@@ -726,10 +751,14 @@ async function decideShare(id,nextStatus,reason){
   const now=Math.floor(Date.now()/1000),author='Widget SIGMA (identité non certifiée)';
   state.busy=true;
   try{
-    await grist.docApi.applyUserActions([
+    const linked=tab('CONSULTATIONS_INVITEES').filter(x=>Number(x.Partage_ID)===id);
+    const actions=[
       ['UpdateRecord','PARTAGES_DOCUMENTS',id,{Statut:nextStatus}],
       ['AddRecord','HISTORIQUE_PARTAGES',null,{Partage:id,Action:nextStatus,Statut_Avant:share.Statut,Date_Evenement:now,Auteur:author,Motif:reason.trim().slice(0,500)}]
-    ]);
+    ];
+    if(nextStatus==='Annulé'||nextStatus==='Refusé')for(const x of linked)actions.push(['UpdateRecord','CONSULTATIONS_INVITEES',x.id,{Statut:'Révoqué'}]);
+    await grist.docApi.applyUserActions(actions);
+    state.data.CONSULTATIONS_INVITEES=rowsFrom(await grist.docApi.fetchTable('CONSULTATIONS_INVITEES'));
     await reloadDocumentCollaboration(doc.id);
     const updated=byId('PARTAGES_DOCUMENTS',id);
     const logged=tab('HISTORIQUE_PARTAGES').some(e=>Number(e.Partage)===id&&e.Action===nextStatus&&Number(e.Date_Evenement)===now);
@@ -894,6 +923,7 @@ $('mail-open').addEventListener('click',()=>{
   }catch(e){notify('Impossible d’ouvrir le courriel : '+e.message);}
 });
 
+document.addEventListener('click',e=>{const b=e.target.closest('[data-share-snapshot]');if(b)sigmaPrepareConsultation(Number(b.dataset.shareSnapshot));});
 $('comment-form').addEventListener('submit',addDocumentComment);
 $('share-form').addEventListener('submit',prepareDocumentShare);
 document.addEventListener('click',e=>{
