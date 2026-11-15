@@ -1,4 +1,4 @@
-/* SIGMA V1.0.1 TEST — préparation automatique des courriels ; ACL Grist obligatoires. */
+/* SIGMA V1.0.5 TEST — préparation automatique des courriels ; ACL Grist obligatoires. */
 'use strict';
 const TABLES = ['SIGNALEMENTS','ACADEMIES','STATUTS','MOTIFS','SIGNALEMENT_MOTIFS','UTILISATEURS','HABILITATIONS','PERSONNES','SIGNALEMENT_PERSONNES','ACTIONS','HISTORIQUE_STATUTS','RENDEZ_VOUS','PARTICIPANTS_RDV','DOCUMENTS','VERSIONS_DOCUMENTS','COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS','HISTORIQUE_PARTAGES','MODELES_COURRIELS'];
 const state = {data:{},view:'dashboard',busy:false,dossierSuivi:null,agendaDate:new Date(),agendaMode:'semaine',rdvDossier:null};
@@ -423,13 +423,12 @@ function renderDocumentCollaboration(doc){
   $('comment-doc-id').value=doc.id;
   $('share-doc-id').value=doc.id;
   const versions=docVersions(doc.id);
-  $('comment-version').innerHTML=versions.map(v=>`<option value="${v.id}" ${Number(v.Numero_Version)===Number(doc.Version_Courante)?'selected':''}>Version ${esc(v.Numero_Version)} — ${esc(v.Statut)}</option>`).join('');
-  const comments=documentComments(doc.id);
-  $('document-comments-list').innerHTML=comments.map(c=>{
-    const version=byId('VERSIONS_DOCUMENTS',c.Version);
-    const resolved=c.Etat==='Résolu';
-    return `<div class="collab-item"><div><strong>${esc(c.Auteur||'Auteur non renseigné')}</strong> <span class="pill ${resolved?'done':'wait'}">${esc(c.Etat||'Actif')}</span><small>${prettyDateTime(c.Date_Commentaire)} · Version ${esc(version?.Numero_Version||'?')}</small><p class="comment-text">${esc(c.Contenu)}</p></div>${resolved?'':`<button type="button" class="row-button" data-comment-resolve="${c.id}">Résoudre</button>`}</div>`;
-  }).join('')||'<p class="muted">Aucun commentaire interne pour ce document.</p>';
+  const previousVersion = $('comment-version').dataset.documentId === String(doc.id) ? $('comment-version').value : '';
+  $('comment-version').innerHTML=versions.map(v=>`<option value="${v.id}">Version ${esc(v.Numero_Version)} — ${esc(v.Statut)}</option>`).join('');
+  $('comment-version').dataset.documentId=String(doc.id);
+  const candidate=versions.find(v=>String(v.id)===previousVersion);
+  $('comment-version').value=String(candidate?.id||versions.find(v=>Number(v.Numero_Version)===Number(doc.Version_Courante))?.id||versions[0]?.id||'');
+  renderReadVersion(doc);
   const shareVersions=versions.filter(v=>v.Statut==='Validé');
   $('share-version').innerHTML=shareVersions.map(v=>`<option value="${v.id}">Version ${esc(v.Numero_Version)} — validée ${prettyDateTime(v.Date_Version)}</option>`).join('') || '<option value="">Aucune version validée</option>';
   $('share-save').disabled=doc.Statut!=='Validé'||!shareVersions.length;
@@ -445,6 +444,20 @@ function renderDocumentCollaboration(doc){
   }).join('')||'<p class="muted">Aucune demande de partage enregistrée.</p>';
   renderMailChoices(doc);
 }
+// V1.0.5 : aperçu et commentaires strictement liés à la version choisie.
+function renderReadVersion(doc){
+  const version=byId('VERSIONS_DOCUMENTS',Number($('comment-version').value));
+  const valid=!!version && Number(version.Document)===Number(doc?.id);
+  $('read-version-meta').textContent=valid?`Version ${version.Numero_Version} · ${version.Statut} · ${prettyDateTime(version.Date_Version)}`:'Aucune version enregistrée';
+  $('read-version-content').textContent=valid?(version.Contenu||'Aucun contenu'):'Aucune version disponible.';
+  const comments=valid?documentComments(doc.id).filter(c=>Number(c.Version)===Number(version.id)):[];
+  $('document-comments-list').innerHTML=comments.map(c=>{
+    const resolved=c.Etat==='Résolu';
+    return `<div class="collab-item"><div><strong>${esc(c.Auteur||'Auteur non renseigné')}</strong> <span class="pill ${resolved?'done':'wait'}">${esc(c.Etat||'Actif')}</span><small>${prettyDateTime(c.Date_Commentaire)} · Version ${esc(version.Numero_Version)}</small><p class="comment-text">${esc(c.Contenu)}</p></div>${resolved?'':`<button type="button" class="row-button" data-comment-resolve="${c.id}">Résoudre</button>`}</div>`;
+  }).join('')||'<p class="muted">Aucun commentaire pour cette version.</p>';
+  $('comment-save').disabled=!valid;
+}
+$('comment-version').addEventListener('change',()=>renderReadVersion(currentDoc()));
 async function reloadDocumentCollaboration(docId){
   for(const name of ['COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS','HISTORIQUE_PARTAGES'])state.data[name]=rowsFrom(await grist.docApi.fetchTable(name));
   renderDocumentCollaboration(byId('DOCUMENTS',docId));
@@ -723,26 +736,14 @@ function sigmaActivateTab(target){
         // L'onglet collaboration est un accordéon : jamais de dépliage automatique.
         // Les autres onglets conservent leur comportement V1.0.4.
         for(const fold of panel.querySelectorAll('details.sigma-fold')){
-          fold.open=target==='document-tab-collab'?false:true;
+          fold.open=target==='document-tab-history';
         }
       }
     }
   }
 }
-// Dans Commentaires et partages, une seule rubrique ouverte à la fois.
-const sigmaCollaboration = document.getElementById('document-collaboration');
-if(sigmaCollaboration){
-  sigmaCollaboration.querySelectorAll('details.sigma-fold').forEach(fold=>{
-    fold.addEventListener('toggle',()=>{
-      if(!fold.open)return;
-      sigmaCollaboration.querySelectorAll('details.sigma-fold').forEach(other=>{
-        if(other!==fold)other.open=false;
-      });
-    });
-  });
-}
 function sigmaDocumentTabAvailability(exists){
-  for(const id of ['btn-document-tab-history','btn-document-tab-collab']){
+  for(const id of ['btn-document-tab-history','btn-document-tab-read','btn-document-tab-share']){
     const btn=document.getElementById(id);if(btn)btn.disabled=!exists;
   }
 }
