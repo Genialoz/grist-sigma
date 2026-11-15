@@ -115,3 +115,22 @@
 #document-tab-share #document-collaboration{margin-top:0}
 #document-tab-share .sigma-mail-fold{margin-top:18px}
 @media(max-width:760px){.sigma-read-layout{grid-template-columns:1fr}.sigma-read-content{max-height:36vh}.document-dialog{width:min(96vw,100%)}}
+
+
+/* SIGMA V1.0.6 — dossier unifié, vue d’ensemble et navigation contextuelle */
+.sigma-dossier-bar{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:14px 17px;margin:8px 0 16px;background:#f2f7fb;border:1px solid #dbe5ef;border-radius:10px;flex-wrap:wrap}
+.sigma-eyebrow{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#527085}
+.sigma-summary-caption{font-size:15px;font-weight:600;color:#19304a;margin-top:4px}
+.sigma-overview-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.sigma-overview-card{background:#fff;border:1px solid #dce6ef;border-radius:10px;padding:15px;min-width:0;overflow-wrap:anywhere}
+.sigma-overview-card>span{display:block;color:#587186;font-size:12px;font-weight:600;margin-bottom:8px}
+.sigma-overview-card>div{font-weight:600;line-height:1.5;white-space:pre-wrap}
+.sigma-overview-card .pill{font-weight:600}
+.sigma-overview-wide{grid-column:1/-1}
+.sigma-overview-counts{display:flex;flex-wrap:wrap;gap:8px}
+.sigma-overview-counts>span{padding:5px 9px;background:#edf5f8;border:1px solid #dbeaf0;border-radius:6px;font-weight:600;font-size:12px}
+.sigma-overview-last{font-size:12px;color:#587186;margin:12px 0 0}
+.sigma-overview-actions{margin-top:18px;border-top:1px solid #e2e9f0;padding-top:14px}
+.sigma-overview-actions h3{font-size:15px;margin:0 0 10px}
+.sigma-overview-shortcuts{display:flex;flex-wrap:wrap;gap:8px}
+@media(max-width:720px){.sigma-overview-grid{grid-template-columns:1fr}.sigma-overview-wide{grid-column:auto}.sigma-dossier-bar>button{width:100%}}
