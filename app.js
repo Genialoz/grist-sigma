@@ -1,4 +1,4 @@
-/* SIGMA V1.0.6 TEST — préparation automatique des courriels ; ACL Grist obligatoires. */
+/* SIGMA V1.0.7 TEST — préparation automatique des courriels ; ACL Grist obligatoires. */
 'use strict';
 const TABLES = ['SIGNALEMENTS','ACADEMIES','STATUTS','MOTIFS','SIGNALEMENT_MOTIFS','UTILISATEURS','HABILITATIONS','PERSONNES','SIGNALEMENT_PERSONNES','ACTIONS','HISTORIQUE_STATUTS','RENDEZ_VOUS','PARTICIPANTS_RDV','DOCUMENTS','VERSIONS_DOCUMENTS','COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS','HISTORIQUE_PARTAGES','MODELES_COURRIELS'];
 const state = {data:{},view:'dashboard',busy:false,dossierSuivi:null,agendaDate:new Date(),agendaMode:'semaine',rdvDossier:null};
@@ -752,10 +752,17 @@ function sigmaActivateTab(target){
     if(panel){
       panel.classList.toggle('hidden',!active);
       if(active){
-        // L'onglet collaboration est un accordéon : jamais de dépliage automatique.
-        // Les autres onglets conservent leur comportement V1.0.4.
+        // Dans la fiche de dossier, chaque onglet contient une rubrique <details>
+        // dont le titre est masqué par le CSS. Elle DOIT être ouverte, sinon
+        // le contenu existe dans le DOM mais reste totalement invisible.
+        // Les rubriques secondaires des documents restent repliables.
+        const isDossierPanel=tabs.dataset.sigmaTabs==='suivi';
         for(const fold of panel.querySelectorAll('details.sigma-fold')){
-          fold.open=target==='document-tab-history';
+          if(isDossierPanel){
+            fold.open=true;
+          }else{
+            fold.open=target==='document-tab-history';
+          }
         }
       }
     }
