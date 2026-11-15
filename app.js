@@ -1,6 +1,6 @@
-/* SIGMA V0.9 TEST — données fictives uniquement ; ACL Grist obligatoires. */
+/* SIGMA V1.0 TEST — données fictives uniquement ; ACL Grist obligatoires. */
 'use strict';
-const TABLES = ['SIGNALEMENTS','ACADEMIES','STATUTS','MOTIFS','SIGNALEMENT_MOTIFS','UTILISATEURS','HABILITATIONS','PERSONNES','SIGNALEMENT_PERSONNES','ACTIONS','HISTORIQUE_STATUTS','RENDEZ_VOUS','PARTICIPANTS_RDV','DOCUMENTS','VERSIONS_DOCUMENTS','COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS','HISTORIQUE_PARTAGES'];
+const TABLES = ['SIGNALEMENTS','ACADEMIES','STATUTS','MOTIFS','SIGNALEMENT_MOTIFS','UTILISATEURS','HABILITATIONS','PERSONNES','SIGNALEMENT_PERSONNES','ACTIONS','HISTORIQUE_STATUTS','RENDEZ_VOUS','PARTICIPANTS_RDV','DOCUMENTS','VERSIONS_DOCUMENTS','COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS','HISTORIQUE_PARTAGES','MODELES_COURRIELS'];
 const state = {data:{},view:'dashboard',busy:false,dossierSuivi:null,agendaDate:new Date(),agendaMode:'semaine',rdvDossier:null};
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -28,7 +28,7 @@ if(state.view==='audit'){renderAudit();}
 if(state.view==='dossiers'){const search=$('search').value.trim().toLowerCase(),statut=$('filter-status').value,motif=$('filter-motif').value;const filtered=dossiers.filter(r=>(!statut||String(r.Statut)===statut)&&(!motif||idsFor(r.id).includes(Number(motif)))&&(!search||[r.Numero,r.Objet,r.Referent,byId('ACADEMIES',r.Academie)?.Nom,...namesFor(r.id)].join(' ').toLowerCase().includes(search)));$('count').textContent=`${filtered.length} dossier(s)`;$('rows').innerHTML=filtered.slice().sort((a,b)=>b.id-a.id).map(dossierRow).join('')||'<tr><td colspan="8">Aucun résultat.</td></tr>';}}
 function optionList(name,textField){return tab(name).slice().sort((a,b)=>(a.Ordre||0)-(b.Ordre||0)).map(x=>`<option value="${x.id}">${esc(x[textField])}</option>`).join('');}
 function loadSelects(){for(const [el,name,col] of [['academie','ACADEMIES','Nom'],['statut','STATUTS','Libelle']])$(el).innerHTML='<option value="">Sélectionner…</option>'+optionList(name,col);$('filter-status').innerHTML='<option value="">Tous les statuts</option>'+optionList('STATUTS','Libelle');$('filter-motif').innerHTML='<option value="">Tous les motifs</option>'+optionList('MOTIFS','Libelle');$('user-academie').innerHTML='<option value="">Sélectionner…</option>'+optionList('ACADEMIES','Nom');$('motifs').innerHTML=tab('MOTIFS').sort((a,b)=>(a.Ordre||0)-(b.Ordre||0)).map(x=>`<label><input type="checkbox" name="motif" value="${x.id}"> ${esc(x.Libelle)}</label>`).join('');}
-async function refresh(){try{notify('');for(const name of TABLES)state.data[name]=rowsFrom(await grist.docApi.fetchTable(name));loadSelects();fillRdvSelects();fillDocumentSelects();render();}catch(e){notify('Chargement impossible : '+e.message+'. Vérifiez les dix-huit tables et les autorisations du widget.');}}
+async function refresh(){try{notify('');for(const name of TABLES)state.data[name]=rowsFrom(await grist.docApi.fetchTable(name));loadSelects();fillRdvSelects();fillDocumentSelects();render();}catch(e){notify('Chargement impossible : '+e.message+'. Vérifiez les tables et les autorisations du widget.');}}
 function openForm(id){$('record-form').reset();$('record-id').value=id||'';const rec=id?byId('SIGNALEMENTS',id):null;$('modal-title').textContent=rec?'Modifier le signalement':'Nouveau signalement';$('numero').value=rec?.Numero||'(généré à la création)';$('date').value=rec?.Date_Reception?new Date(Number(rec.Date_Reception)*1000).toISOString().slice(0,10):new Date().toISOString().slice(0,10);$('objet').value=rec?.Objet||'';$('academie').value=rec?.Academie||'';$('statut').value=rec?.Statut||'';$('referent').value=rec?.Referent||'';$('resume').value=rec?.Resume||'';const motifs=new Set(rec?idsFor(rec.id):[]);for(const cb of document.querySelectorAll('input[name="motif"]'))cb.checked=motifs.has(Number(cb.value));loadAssignments(rec?.id);$('modal').classList.remove('hidden');$('objet').focus();}
 function closeForm(){$('modal').classList.add('hidden');}
 // V0.5.1 : vérification explicite des écritures dans HISTORIQUE_STATUTS.
@@ -443,6 +443,7 @@ function renderDocumentCollaboration(doc){
     const actions=p.Statut==='Projet' ? `<button type="button" class="row-button" data-share-review="${p.id}" ${expired||!ver?'disabled':''}>Vérifier</button> <button type="button" class="row-button" data-share-reject="${p.id}">Refuser</button> <button type="button" class="row-button" data-share-cancel="${p.id}">Annuler</button>` : (p.Statut==='Vérifié' ? `<button type="button" class="row-button" data-share-cancel="${p.id}">Révoquer la demande</button>` : '');
     return `<div class="collab-item"><div><strong>${esc(p.Destinataire)}</strong> <span class="pill ${['Annulé','Refusé'].includes(p.Statut)?'done':'wait'}">${esc(status)}</span><small>${esc(p.Email)} · ${esc(p.Droit)} · ${ver?'Version '+esc(ver.Numero_Version):'Version non spécifiée (ancien projet)'} · échéance ${dateText(p.Expiration)} · ${prettyDateTime(p.Date_Creation)}</small><p class="comment-text">${esc(p.Message||'Aucun message')}</p><p class="muted"><strong>Aucun accès ni lien créé, quel que soit le statut.</strong></p><details class="share-log"><summary>Historique des décisions (${history.length})</summary>${history.map(e=>`<p><small>${prettyDateTime(e.Date_Evenement)} · ${esc(e.Action)} · ${esc(e.Auteur)} — ${esc(e.Motif||'Sans motif')}</small></p>`).join('')||'<p>Aucune décision enregistrée.</p>'}</details></div><div class="share-actions">${actions}</div></div>`;
   }).join('')||'<p class="muted">Aucune demande de partage enregistrée.</p>';
+  renderMailChoices(doc);
 }
 async function reloadDocumentCollaboration(docId){
   for(const name of ['COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS','HISTORIQUE_PARTAGES'])state.data[name]=rowsFrom(await grist.docApi.fetchTable(name));
@@ -529,6 +530,97 @@ async function changeCollabStatus(table,id,fields,docId,label){
   }catch(e){notify('Modification incertaine : '+e.message);}
   finally{state.busy=false;}
 }
+// SIGMA V1.0 — Modèles de courriels ; aucune pièce jointe, lien ni transmission automatique.
+const mailModels = () => tab('MODELES_COURRIELS').slice().sort((a,b)=>(Number(a.Ordre)||0)-(Number(b.Ordre)||0)||a.id-b.id);
+const mailSafe = value => String(value ?? '').replace(/[\r\n]/g,' ').trim();
+const mailAllowed = new Set(['destinataire','droit','expiration','version']);
+function renderMailChoices(doc){
+  const previousShare=$('mail-share').value,previousTemplate=$('mail-template').value;
+  const eligible=documentShares(doc.id).filter(p=>{
+    const version=byId('VERSIONS_DOCUMENTS',p.Version);
+    return doc.Statut==='Validé' && p.Statut==='Vérifié' && version?.Statut==='Validé' && Number(version.Document)===Number(doc.id) && Number(p.Expiration)>0 && Number(p.Expiration)+86400>Date.now()/1000;
+  });
+  $('mail-share').innerHTML='<option value="">Sélectionner une demande vérifiée…</option>'+eligible.map(p=>`<option value="${p.id}">${esc(p.Destinataire)} — ${esc(p.Email)} (version ${esc(byId('VERSIONS_DOCUMENTS',p.Version)?.Numero_Version)})</option>`).join('');
+  $('mail-template').innerHTML='<option value="">Sélectionner un modèle…</option>'+mailModels().filter(m=>Number(m.Actif)===1).map(m=>`<option value="${m.id}">${esc(m.Libelle)}</option>`).join('');
+  if(eligible.some(p=>String(p.id)===previousShare))$('mail-share').value=previousShare;
+  if(mailModels().some(m=>String(m.id)===previousTemplate&&Number(m.Actif)===1))$('mail-template').value=previousTemplate;
+  $('mail-info').textContent='Sélectionne une demande vérifiée et un modèle, puis prépare le message.';
+}
+function mailContext(){
+  const doc=currentDoc(),share=byId('PARTAGES_DOCUMENTS',Number($('mail-share').value));
+  const model=byId('MODELES_COURRIELS',Number($('mail-template').value));
+  if(!doc||doc.Statut!=='Validé'||!share||Number(share.Document)!==Number(doc.id)||share.Statut!=='Vérifié')throw new Error('Sélectionne une demande vérifiée correspondant au document.');
+  const version=byId('VERSIONS_DOCUMENTS',share.Version);
+  if(!version||Number(version.Document)!==Number(doc.id)||version.Statut!=='Validé')throw new Error('La version associée n’est plus valide.');
+  if(!Number(share.Expiration)||Number(share.Expiration)+86400<=Date.now()/1000)throw new Error('Cette demande a expiré.');
+  if(!model||Number(model.Actif)!==1)throw new Error('Sélectionne un modèle actif.');
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(share.Email||''))||/[\r\n]/.test(share.Email))throw new Error('Adresse électronique du destinataire invalide.');
+  return {doc,share,version,model};
+}
+function mailExpand(template,ctx){
+  const values={destinataire:mailSafe(ctx.share.Destinataire),droit:ctx.share.Droit==='commentaire'?'lecture et commentaires':'lecture seule',expiration:dateText(ctx.share.Expiration),version:String(ctx.version.Numero_Version)};
+  return String(template||'').replace(/\{([^{}]+)\}/g,(_,key)=>mailAllowed.has(key)?values[key]:'{'+key+'}');
+}
+function prepareMail(){
+  try{
+    const ctx=mailContext();
+    $('mail-subject').value=mailExpand(ctx.model.Objet,ctx).replace(/[\r\n]/g,' ').trim();
+    $('mail-body').value=mailExpand(ctx.model.Corps,ctx);
+    $('mail-info').textContent='Aperçu prêt pour '+ctx.share.Email+'. Aucun accès au compte rendu n’est ouvert.';
+    notify('Message préparé. Vérifie l’objet et le contenu avant toute action.',true);
+  }catch(e){notify(e.message);}
+}
+function composedMail(){
+  const ctx=mailContext(),subject=$('mail-subject').value.trim(),body=$('mail-body').value.trim();
+  if(!subject||!body)throw new Error('Prépare et vérifie un objet et un corps de message.');
+  if(/[\r\n]/.test(subject))throw new Error('L’objet ne doit pas contenir de retour à la ligne.');
+  if(/https?:\/\//i.test(body)||/https?:\/\//i.test(subject))throw new Error('Aucun lien HTTP(S) n’est accepté dans ce pilote sans accès externe.');
+  return {email:ctx.share.Email,subject,body};
+}
+$('mail-preview').addEventListener('click',prepareMail);
+$('mail-share').addEventListener('change',()=>{$('mail-subject').value='';$('mail-body').value='';});
+$('mail-template').addEventListener('change',()=>{
+  const m=byId('MODELES_COURRIELS',Number($('mail-template').value));
+  $('mail-template-id').value=m?.id||'';$('mail-model-code').value=m?.Code||'';
+  $('mail-model-label').value=m?.Libelle||'';$('mail-model-subject').value=m?.Objet||'';$('mail-model-body').value=m?.Corps||'';
+  $('mail-model-active').checked=Number(m?.Actif)===1;
+  $('mail-subject').value='';$('mail-body').value='';
+});
+$('mail-model-new').addEventListener('click',()=>{$('mail-template-form').reset();$('mail-template-id').value='';$('mail-model-active').checked=true;});
+$('mail-template-form').addEventListener('submit',async e=>{
+  e.preventDefault();if(state.busy)return;
+  const id=Number($('mail-template-id').value)||null,code=$('mail-model-code').value.trim();
+  const fields={Code:code,Libelle:$('mail-model-label').value.trim(),Objet:$('mail-model-subject').value.trim(),Corps:$('mail-model-body').value.trim(),Actif:$('mail-model-active').checked?1:0,Ordre:id?Number(byId('MODELES_COURRIELS',id)?.Ordre)||0:mailModels().length+1};
+  if(!/^[A-Za-z0-9_-]{2,60}$/.test(code)||!fields.Libelle||!fields.Objet||!fields.Corps)return notify('Renseigne un code alphanumérique unique, un libellé, un objet et un corps.');
+  if(mailModels().some(m=>m.Code===code&&Number(m.id)!==id))return notify('Ce code de modèle existe déjà.');
+  state.busy=true;
+  try{
+    await grist.docApi.applyUserActions([[id?'UpdateRecord':'AddRecord','MODELES_COURRIELS',id,fields]]);
+    state.data.MODELES_COURRIELS=rowsFrom(await grist.docApi.fetchTable('MODELES_COURRIELS'));
+    const saved=mailModels().find(m=>m.Code===code&&m.Corps===fields.Corps);
+    if(!saved)throw new Error('Le modèle n’a pas été retrouvé après écriture.');
+    renderMailChoices(currentDoc());$('mail-template').value=String(saved.id);
+    $('mail-template-id').value=saved.id;
+    notify('Modèle de courriel enregistré dans Grist.',true);
+  }catch(err){notify('Modèle non confirmé : '+err.message);}
+  finally{state.busy=false;}
+});
+$('mail-copy').addEventListener('click',async()=>{
+  try{const m=composedMail();const txt='À : '+m.email+'\nObjet : '+m.subject+'\n\n'+m.body;
+    if(!navigator.clipboard?.writeText)throw new Error('Presse-papiers non disponible dans ce widget.');
+    await navigator.clipboard.writeText(txt);notify('Courriel copié. Aucun message n’a été envoyé.',true);
+  }catch(e){notify('Copie impossible : '+e.message);}
+});
+$('mail-open').addEventListener('click',()=>{
+  try{const m=composedMail();
+    if(!confirm('Ouvrir la messagerie pour '+m.email+' ? Aucun accès au document n’est créé ; vérifie le contenu avant envoi.'))return;
+    const url='mailto:'+m.email+'?subject='+encodeURIComponent(m.subject)+'&body='+encodeURIComponent(m.body);
+    if(url.length>1800)throw new Error('Message trop long pour une URL mailto : utilise Copier le courriel.');
+    window.location.href=url;
+    notify('Ouverture de la messagerie demandée (envoi non confirmé).',true);
+  }catch(e){notify('Impossible d’ouvrir le courriel : '+e.message);}
+});
+
 $('comment-form').addEventListener('submit',addDocumentComment);
 $('share-form').addEventListener('submit',prepareDocumentShare);
 document.addEventListener('click',e=>{

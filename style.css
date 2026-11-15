@@ -52,3 +52,6 @@
 
 /* SIGMA V0.9 : décisions internes de partage */
 .share-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px;justify-content:flex-end}.share-log{margin-top:8px}.share-log summary{cursor:pointer;font-size:12px;color:#345c77}.share-log p{margin:4px 0}.share-actions button:disabled{opacity:.45;cursor:not-allowed}
+
+/* SIGMA V1.0 — courriels préparatoires */
+.mail-feature{margin-top:24px;padding:18px;border:1px solid #d6e3eb;border-radius:10px;background:#f8fbfd}.mail-feature h3{margin-top:0}.mail-feature .mail-model-admin{margin-top:16px;border-top:1px solid #d6e3eb;padding-top:12px}.mail-model-admin summary{cursor:pointer;font-weight:650;color:#244960}.mail-feature #mail-info{margin:8px 0 0}.mail-feature .active-check{display:flex!important;flex-direction:row!important;gap:8px;align-items:center}.mail-feature .active-check input{width:16px;height:16px;margin:0;flex:none}
