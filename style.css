@@ -174,3 +174,12 @@
 .sigma-home-detail .home-agenda-block{padding:12px}
 .sigma-late-count:not(:empty){background:#fcece8;color:#9b342a}
 @media(max-width:760px){.sigma-home-detail>summary{flex-wrap:wrap;gap:8px}.sigma-home-counters{order:3;width:100%;justify-content:flex-start}.sigma-home-chevron{margin-left:auto}.sigma-home-detail-content{padding:12px}.sigma-home-detail-heading{min-width:0}}
+
+/* SIGMA V1.0.11 — archivage discret dans la fiche, recherche annuelle. */
+.sigma-archive-control{margin:12px 0;border:1px solid var(--border,#dbe2e9);border-radius:10px;background:var(--card,#fff)}
+.sigma-archive-control>summary{cursor:pointer;padding:12px 16px;font-weight:600;list-style-position:inside}
+.sigma-archive-inner{padding:0 16px 14px;display:flex;align-items:flex-start;flex-direction:column;gap:10px}
+.sigma-archive-inner label{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.sigma-archive-inner select{min-width:120px}
+.sigma-archive-help{font-size:.8rem;margin:0}
+#filter-archive-year:disabled{opacity:.55}
