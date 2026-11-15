@@ -79,7 +79,7 @@
 #document-collaboration .sigma-fold-body{padding:14px}
 @media(max-width:700px){.sigma-fold-body{padding:12px}.sigma-fold-toolbar span{width:100%}.sigma-fold > summary{padding:12px}}
 
-/* SIGMA V1.0.3 — Navigation par onglets accessible */
+/* SIGMA V1.0.4 — Navigation par onglets accessible */
 .sigma-tabs{display:flex;flex-wrap:wrap;align-items:center;gap:6px;border-bottom:1px solid #d7e1eb;margin:12px 0 16px;padding-bottom:8px}
 .sigma-tab{appearance:none;border:1px solid #cbd8e4;background:#f5f8fc;color:#27445c;padding:10px 13px;border-radius:8px;font-weight:600;cursor:pointer;min-height:42px}
 .sigma-tab:hover:not(:disabled){background:#e6eff8}
@@ -96,3 +96,9 @@
 #document-tab-history #document-versions .sigma-fold > summary{display:none}
 #document-tab-collab #document-collaboration{margin-top:0}
 @media(max-width:650px){.sigma-tabs{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:thin}.sigma-tab{white-space:nowrap;flex-shrink:0}.sigma-document-tabs{position:static}}
+
+/* SIGMA V1.0.4 : sous-rubriques du volet Commentaires et partages */
+#document-collaboration .sigma-fold > summary{min-height:64px;align-items:center}
+#document-collaboration .sigma-fold-label{display:flex;flex-direction:column;gap:4px;min-width:0}
+#document-collaboration .sigma-fold-label small{font-size:12px;font-weight:400;line-height:1.35;color:#567087}
+#document-collaboration .sigma-fold[open] > summary{background:#f0f7f8}

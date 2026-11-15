@@ -693,7 +693,7 @@ for(const el of document.querySelectorAll('.nav'))el.addEventListener('click',()
 if(typeof grist==='undefined'){notify('Ce widget doit être ouvert depuis une page Grist (API indisponible).');}else{grist.ready({requiredAccess:'full'});refresh();}
 
 
-// SIGMA V1.0.3 - commandes de confort pour rubriques du suivi.
+// SIGMA V1.0.4 - commandes de confort pour rubriques du suivi.
 // Utilise les éléments natifs <details> : aucune incidence sur les ACL ou les écritures.
 document.querySelectorAll('[data-fold-action][data-fold-target]').forEach(button => {
   button.addEventListener('click', () => {
@@ -705,7 +705,7 @@ document.querySelectorAll('[data-fold-action][data-fold-target]').forEach(button
   });
 });
 
-// SIGMA V1.0.3 — Navigation contextuelle, sans écriture Grist ni changement ACL.
+// SIGMA V1.0.4 — Navigation contextuelle, sans écriture Grist ni changement ACL.
 function sigmaActivateTab(target){
   const btn=document.querySelector(`[data-tab-target="${target}"]`);
   if(!btn||btn.disabled)return;
@@ -717,10 +717,29 @@ function sigmaActivateTab(target){
     other.setAttribute('aria-selected',String(active));
     other.tabIndex=active?0:-1;
     const panel=document.getElementById(other.dataset.tabTarget);
-    if(panel){panel.classList.toggle('hidden',!active);if(active){
-      for(const fold of panel.querySelectorAll('details.sigma-fold'))fold.open=true;
-    }}
+    if(panel){
+      panel.classList.toggle('hidden',!active);
+      if(active){
+        // L'onglet collaboration est un accordéon : jamais de dépliage automatique.
+        // Les autres onglets conservent leur comportement V1.0.4.
+        for(const fold of panel.querySelectorAll('details.sigma-fold')){
+          fold.open=target==='document-tab-collab'?false:true;
+        }
+      }
+    }
   }
+}
+// Dans Commentaires et partages, une seule rubrique ouverte à la fois.
+const sigmaCollaboration = document.getElementById('document-collaboration');
+if(sigmaCollaboration){
+  sigmaCollaboration.querySelectorAll('details.sigma-fold').forEach(fold=>{
+    fold.addEventListener('toggle',()=>{
+      if(!fold.open)return;
+      sigmaCollaboration.querySelectorAll('details.sigma-fold').forEach(other=>{
+        if(other!==fold)other.open=false;
+      });
+    });
+  });
 }
 function sigmaDocumentTabAvailability(exists){
   for(const id of ['btn-document-tab-history','btn-document-tab-collab']){
