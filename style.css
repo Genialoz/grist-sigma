@@ -55,3 +55,26 @@
 
 /* SIGMA V1.0 — courriels préparatoires */
 .mail-feature{margin-top:24px;padding:18px;border:1px solid #d6e3eb;border-radius:10px;background:#f8fbfd}.mail-feature h3{margin-top:0}.mail-feature .mail-model-admin{margin-top:16px;border-top:1px solid #d6e3eb;padding-top:12px}.mail-model-admin summary{cursor:pointer;font-weight:650;color:#244960}.mail-feature #mail-info{margin:8px 0 0}.mail-feature .active-check{display:flex!important;flex-direction:row!important;gap:8px;align-items:center}.mail-feature .active-check input{width:16px;height:16px;margin:0;flex:none}
+
+
+/* SIGMA V1.0.2 - Navigation progressive, sans changement des données */
+.sigma-fold-toolbar{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px;padding:10px 0 4px}
+.sigma-fold-toolbar span{margin-right:auto;color:#50677e;font-size:12px}
+.sigma-small-button{font-size:12px!important;padding:7px 10px!important}
+.suivi-section{padding-top:0!important;margin-top:10px!important;border-top:0!important}
+.sigma-fold{border:1px solid #d9e3ee;border-radius:10px;background:#fff;margin:12px 0;overflow:visible}
+.sigma-fold > summary{list-style:none;display:flex;align-items:center;gap:10px;padding:15px 17px;cursor:pointer;color:#193b55;font-size:15px;font-weight:700;user-select:none;border-radius:10px}
+.sigma-fold > summary::-webkit-details-marker{display:none}
+.sigma-fold > summary::before{content:'▸';font-size:17px;color:#187d79;display:inline-block;width:16px;transition:transform .12s ease}
+.sigma-fold[open] > summary::before{transform:rotate(90deg)}
+.sigma-fold > summary:hover{background:#f2f8fa}
+.sigma-fold > summary:focus-visible{outline:3px solid #258c96;outline-offset:2px}
+.sigma-fold[open] > summary{border-bottom:1px solid #e4edf3;border-radius:10px 10px 0 0;background:#f6fafc}
+.sigma-fold-body{padding:15px 17px 18px}
+.sigma-fold-body > .panel-head{display:flex;justify-content:flex-end;margin-bottom:10px}
+.sigma-fold-body > .panel-head h3{display:none}
+.sigma-fold-body .mail-feature{border-top:0;margin-top:0;padding-top:0}
+#document-versions,#document-collaboration{border-top:0!important;padding-top:0!important}
+#document-collaboration .sigma-fold{margin:10px 0}
+#document-collaboration .sigma-fold-body{padding:14px}
+@media(max-width:700px){.sigma-fold-body{padding:12px}.sigma-fold-toolbar span{width:100%}.sigma-fold > summary{padding:12px}}

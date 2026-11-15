@@ -691,3 +691,16 @@ document.addEventListener('click',e=>{
 
 for(const el of document.querySelectorAll('.nav'))el.addEventListener('click',()=>show(el.dataset.view));$('add').onclick=()=>openForm();$('close').onclick=closeForm;$('cancel').onclick=closeForm;$('refresh').onclick=refresh;$('all').onclick=()=>show('dossiers');$('record-form').addEventListener('submit',save);for(const id of ['search','filter-status','filter-motif'])$(id).addEventListener(id==='search'?'input':'change',render);$('clear').onclick=()=>{$('search').value='';$('filter-status').value='';$('filter-motif').value='';render();};document.addEventListener('click',ev=>{const button=ev.target.closest('[data-edit]');if(button)openForm(Number(button.dataset.edit));});$('run-audit').onclick=refresh;$('add-user').onclick=()=>editUser();$('user-close').onclick=closeUser;$('user-cancel').onclick=closeUser;$('user-form').addEventListener('submit',saveUser);$('access-form').addEventListener('submit',saveAccess);$('access-close').onclick=closeAccess;$('access-cancel').onclick=closeAccess;document.addEventListener('click',e=>{const b=e.target.closest('[data-access-user]');if(b)openAccess(Number(b.dataset.accessUser));});$('access-modal').addEventListener('click',e=>{if(e.target===$('access-modal'))closeAccess();});document.addEventListener('click',e=>{const b=e.target.closest('[data-user-edit]');if(b)editUser(Number(b.dataset.userEdit));});$('user-modal').addEventListener('click',e=>{if(e.target===$('user-modal'))closeUser();});$('modal').addEventListener('click',ev=>{if(ev.target===$('modal'))closeForm();});document.addEventListener('keydown',ev=>{if(ev.key==='Escape'){closeForm();closeUser();closeAccess();closePersonForm();closeRdv();closeDocument();$('version-modal').classList.add('hidden');}});
 if(typeof grist==='undefined'){notify('Ce widget doit être ouvert depuis une page Grist (API indisponible).');}else{grist.ready({requiredAccess:'full'});refresh();}
+
+
+// SIGMA V1.0.2 - commandes de confort pour rubriques du suivi.
+// Utilise les éléments natifs <details> : aucune incidence sur les ACL ou les écritures.
+document.querySelectorAll('[data-fold-action][data-fold-target]').forEach(button => {
+  button.addEventListener('click', () => {
+    const parent = document.getElementById(button.dataset.foldTarget);
+    if (!parent) return;
+    parent.querySelectorAll('details.sigma-fold').forEach(d => {
+      d.open = button.dataset.foldAction === 'expand';
+    });
+  });
+});
