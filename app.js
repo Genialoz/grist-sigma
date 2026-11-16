@@ -1,4 +1,4 @@
-/* SIGMA V1.0.16 TEST — préparation automatique des courriels ; ACL Grist obligatoires. */
+/* SIGMA V1.0.16.2 TEST — préparation automatique des courriels ; ACL Grist obligatoires. */
 'use strict';
 const TABLES = ['SIGNALEMENTS','ACADEMIES','STATUTS','MOTIFS','SIGNALEMENT_MOTIFS','UTILISATEURS','HABILITATIONS','PERSONNES','SIGNALEMENT_PERSONNES','ACTIONS','HISTORIQUE_STATUTS','HISTORIQUE_ARCHIVAGE','RENDEZ_VOUS','PARTICIPANTS_RDV','DOCUMENTS','VERSIONS_DOCUMENTS','COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS','HISTORIQUE_PARTAGES','CONSULTATIONS_INVITEES','MODELES_COURRIELS'];
 const state = {data:{},view:'dashboard',busy:false,dossierSuivi:null,agendaDate:new Date(),agendaMode:'semaine',rdvDossier:null,archiveYear:null,returnFromDossier:'dossiers'};
@@ -647,8 +647,8 @@ function renderDocumentCollaboration(doc){
     const history=tab('HISTORIQUE_PARTAGES').filter(e=>Number(e.Partage)===Number(p.id)).sort((a,b)=>Number(b.Date_Evenement)-Number(a.Date_Evenement)||b.id-a.id);
     const consult=tab('CONSULTATIONS_INVITEES').find(x=>Number(x.Partage_ID)===Number(p.id));
     const consultInfo=consult?`<p class="muted">Document préparé : <strong>${esc(consult.Statut||'Préparé')}</strong> (ligne ${consult.id}) · <strong>${esc(consult.Email||'')}</strong>. ${consult.Statut==='Actif'?'Révoquer immédiatement dans Grist si nécessaire.':'En attente d’autorisation technique : aucun accès invité.'}</p>`:'';
-    const prepareBtn=p.Statut==='Vérifié' && !expired && ver && !consult ? `<button type="button" class="row-button" data-share-snapshot="${p.id}">Finaliser une ancienne demande</button>` : '';
-    const actions=p.Statut==='Projet' ? `<button type="button" class="row-button" data-share-review="${p.id}" ${expired||!ver?'disabled':''}>Valider la préparation</button> <button type="button" class="row-button" data-share-reject="${p.id}">Refuser</button> <button type="button" class="row-button" data-share-cancel="${p.id}">Annuler</button>` : (p.Statut==='Vérifié' ? `<button type="button" class="row-button" data-share-cancel="${p.id}">Révoquer la demande</button>` : '');
+    const prepareBtn=p.Statut==='Vérifié' && !expired && ver && !consult ? `<button type="button" class="row-button" data-share-snapshot="${p.id}">Préparer la copie manquante</button>` : '';
+    const actions=p.Statut==='Projet' ? `<button type="button" class="row-button" data-share-review="${p.id}" ${expired||!ver?'disabled':''}>Préparer le compte rendu</button> <button type="button" class="row-button" data-share-reject="${p.id}">Refuser</button> <button type="button" class="row-button" data-share-cancel="${p.id}">Annuler</button>` : (p.Statut==='Vérifié' ? `<button type="button" class="row-button" data-share-cancel="${p.id}">Annuler le partage prévu</button>` : '');
     return `<div class="collab-item"><div><strong>${esc(p.Destinataire)}</strong> <span class="pill ${['Annulé','Refusé'].includes(p.Statut)?'done':'wait'}">${esc(status)}</span><small>${esc(p.Email)} · ${esc(p.Droit)} · ${ver?'Version '+esc(ver.Numero_Version):'Version non spécifiée (ancien projet)'} · échéance ${dateText(p.Expiration)} · ${prettyDateTime(p.Date_Creation)}</small><p class="comment-text">${esc(p.Message||'Aucun message')}</p><p class="muted"><strong>La demande seule ne donne aucun accès.</strong></p>${consultInfo}<details class="share-log"><summary>Historique des décisions (${history.length})</summary>${history.map(e=>`<p><small>${prettyDateTime(e.Date_Evenement)} · ${esc(e.Action)} · ${esc(e.Auteur)} — ${esc(e.Motif||'Sans motif')}</small></p>`).join('')||'<p>Aucune décision enregistrée.</p>'}</details></div><div class="share-actions">${prepareBtn} ${actions}</div></div>`;
   };
   // Les demandes clôturées restent consultables, mais ne repoussent plus
@@ -719,7 +719,8 @@ async function prepareDocumentShare(ev){
     await reloadDocumentCollaboration(docId);
     if(!documentShares(docId).some(p=>p.Email===email&&p.Statut==='Projet'&&Number(p.Date_Creation)===now))throw new Error('Projet non retrouvé après écriture.');
     $('share-form').reset();$('share-doc-id').value=docId;
-    notify('Demande enregistrée. Clique sur « Valider la préparation » pour préparer le document sans donner accès au destinataire.',true);
+    $('sigma-new-share').open=false;
+    notify('Demande enregistrée. Clique sur « Préparer le compte rendu » pour créer sa copie sans autoriser l’accès externe.',true);
   }catch(e){notify('Enregistrement du projet de partage incertain : '+e.message+' Vérifiez la table avant de recommencer.');}
   finally{state.busy=false;btn.disabled=false;}
 }
