@@ -1,77 +1,90 @@
-/* SIGMA V1.0.16.3 TEST — consultation en lecture seule, refusee par defaut.
-   IMPORTANT : aucune autorisation n'est fournie par ce JavaScript.
-   Une ACL Grist et un document isole sont indispensables. */
+/* SIGMA V1.0.16.5 TEST — lecture seule, aucune autorisation créée par le widget.
+   Les ACL Grist sont indispensables ; l'expiration JS ne sécurise pas l'API. */
 'use strict';
 (() => {
-  const TABLE = 'CONSULTATIONS_INVITEES';
-  const $ = (id) => document.getElementById(id);
+  const $ = id => document.getElementById(id);
   const required = ['id', 'Email', 'Statut', 'Titre', 'Version_Numero', 'Contenu', 'Expiration'];
+  let revision = 0;
   function status(message, type = '') {
     $('notice').textContent = message;
     $('notice').className = 'message' + (type ? ' ' + type : '');
   }
-  function renderNone(message) {
+  function hide(message) {
     $('viewer').classList.add('hidden');
     $('title').textContent = '';
     $('content').textContent = '';
     status(message, 'error');
   }
-  function fromColumnar(data) {
+  function rowsFrom(data) {
     if (Array.isArray(data)) return data;
-    if (!data || !Array.isArray(data.id)) throw Error('Format Grist non reconnu.');
+    if (!data || !Array.isArray(data.id)) throw Error('La table Grist n’a pas renvoyé de lignes reconnues.');
     return data.id.map((id, i) => {
-      const row = { id };
-      Object.keys(data).forEach(k => { if (Array.isArray(data[k]) && k !== 'id') row[k] = data[k][i]; });
+      const row = {id};
+      for (const [name, values] of Object.entries(data)) {
+        if (name !== 'id' && Array.isArray(values)) row[name] = values[i];
+      }
       return row;
     });
   }
-  function expiryInSeconds(raw) {
-    if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+  function dateSeconds(value) {
+    // L'API Grist peut fournir une Date sous forme numérique ou décodée.
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.getTime() / 1000 : NaN;
+    if (typeof value === 'string' && value.trim()) {
+      const text = value.trim();
+      if (/^\d{4}-\d\d-\d\d(?:T.*)?$/.test(text)) {
+        const parsed = Date.parse(text.length === 10 ? text + 'T00:00:00Z' : text);
+        return Number.isFinite(parsed) ? parsed / 1000 : NaN;
+      }
+    }
     return NaN;
   }
-  function render(rows) {
-    // Cette vérification JS sert à l'ergonomie, pas à l'autorisation.
-    // La protection réelle doit filtrer la ligne AVANT son envoi par Grist.
-    const validRows = rows.filter(r => r.Statut === 'Actif' && expiryInSeconds(r.Expiration) > Date.now() / 1000);
-    if (validRows.length !== 1) {
-      renderNone(validRows.length > 1 ? 'Plusieurs consultations sont accessibles. Par sécurité, aucun contenu n’est affiché : contactez le gestionnaire.' : 'Aucune consultation active et non expirée n’est disponible pour votre compte.');
+  function showRows(rows) {
+    const missing = rows.length ? required.filter(field => !(field in rows[0])) : [];
+    if (missing.length) { hide('Configuration incomplète : colonnes manquantes (' + missing.join(', ') + ').'); return; }
+    const now = Date.now() / 1000;
+    const active = rows.filter(r => String(r.Statut || '').trim() === 'Actif');
+    const valid = active.filter(r => dateSeconds(r.Expiration) > now);
+    if (valid.length !== 1) {
+      if (valid.length > 1) { hide('Plusieurs consultations actives sont accessibles : affichage bloqué.'); return; }
+      if (!rows.length) { hide('Aucune ligne accessible dans la table CONSULTATIONS_INVITEES. Vérifiez la vue et les ACL.'); return; }
+      if (!active.length) { hide('Aucune ligne avec le statut exactement « Actif ». Vérifiez la valeur du champ Statut.'); return; }
+      if (active.some(r => !Number.isFinite(dateSeconds(r.Expiration)))) { hide('Date d’expiration non reconnue. Vérifiez le type Date et la valeur de la colonne Expiration.'); return; }
+      hide('La consultation est expirée. Vérifiez la date Expiration dans Grist.');
       return;
     }
-    const r = validRows[0];
+    const r = valid[0];
     $('title').textContent = String(r.Titre || 'Compte rendu');
     $('version').textContent = 'Version ' + String(r.Version_Numero || '—');
-    $('expiration').textContent = 'Échéance indicative : ' + new Date(expiryInSeconds(r.Expiration) * 1000).toLocaleDateString('fr-FR', { timeZone: 'UTC' });
+    $('expiration').textContent = 'Échéance indicative : ' + new Date(dateSeconds(r.Expiration) * 1000).toLocaleDateString('fr-FR', {timeZone: 'UTC'});
     $('content').textContent = String(r.Contenu || 'Aucun contenu.');
     $('viewer').classList.remove('hidden');
-    status('Vous consultez une copie en lecture seule. Aucun commentaire ni modification n’est possible dans cette version.', 'ok');
+    status('Copie fictive en lecture seule. Aucun droit externe n’est activé par ce widget.', 'ok');
   }
   async function reload() {
+    const current = ++revision;
     $('viewer').classList.add('hidden');
     status('Chargement de votre consultation…');
     try {
-      // fetchSelectedTable limite l'acces au tableau explicitement associe au widget.
-      // Les ACL sont appliquees par Grist sur les enregistrements renvoyes.
-      const raw = await grist.docApi.fetchSelectedTable();
-      const rows = fromColumnar(raw);
-      if (rows.length) {
-        const missing = required.filter(field => !(field in rows[0]));
-        if (missing.length) throw Error('Colonnes manquantes : ' + missing.join(', '));
-      }
-      render(rows);
+      // Toujours utiliser le même chemin pour les chargements et notifications.
+      // keepEncoded conserve les Date au format numérique Grist (secondes Unix).
+      const data = await grist.docApi.fetchSelectedTable({keepEncoded: true});
+      if (current !== revision) return;
+      showRows(rowsFrom(data));
     } catch (e) {
-      renderNone('Consultation indisponible. Vérifiez le paramétrage Grist et les autorisations.');
-      console.error('SIGMA consultation :', e);
+      if (current !== revision) return;
+      hide('Impossible de lire la table sélectionnée. Vérifiez le niveau « Lecture de la table » et les ACL.');
+      console.error('SIGMA consultation — chargement :', e);
     }
   }
   $('reload').addEventListener('click', reload);
   if (typeof grist === 'undefined') {
-    renderNone('API Grist non chargée. Vérifiez que cette URL est intégrée dans un widget personnalisé Grist et que le script grist-plugin-api.js n’est pas bloqué.');
-    console.error('SIGMA consultation : grist-plugin-api.js non chargé ou non exécuté.');
+    hide('API Grist non chargée. Ouvrez cette page dans un widget personnalisé Grist.');
     return;
   }
-  grist.ready({ requiredAccess: 'read table' });
-  grist.onRecords((rows) => {
-    try { render(fromColumnar(rows)); } catch (e) { renderNone('Données Grist invalides.'); console.error(e); }
-  });
-  reload();
+  grist.ready({requiredAccess: 'read table'});
+  // onRecords sert uniquement de signal d'actualisation, sans traiter son format
+  // potentiellement différent de fetchSelectedTable.
+  grist.onRecords(() => { void reload(); });
+  void reload();
 })();
