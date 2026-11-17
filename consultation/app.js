@@ -65,7 +65,8 @@
   }
   $('reload').addEventListener('click', reload);
   if (typeof grist === 'undefined') {
-    renderNone('Cette page doit être ouverte depuis le widget Grist de consultation.');
+    renderNone('API Grist non chargée. Vérifiez que cette URL est intégrée dans un widget personnalisé Grist et que le script grist-plugin-api.js n’est pas bloqué.');
+    console.error('SIGMA consultation : grist-plugin-api.js non chargé ou non exécuté.');
     return;
   }
   grist.ready({ requiredAccess: 'read table' });
