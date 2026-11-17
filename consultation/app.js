@@ -1,4 +1,4 @@
-/* SIGMA V1.0.16.7 TEST — lecture seule, aucune autorisation créée par le widget.
+/* SIGMA V1.0.16.8 TEST — lecture seule, aucune autorisation créée par le widget.
    Les ACL Grist sont indispensables ; l'expiration JS ne sécurise pas l'API. */
 'use strict';
 (() => {
@@ -7,6 +7,106 @@
   let revision = 0;
   let selectedId = null;
   let visibleRows = [];
+  let commentsRevision = 0;
+  const COMMENTS_TABLE = 'COMMENTAIRES_INVITES';
+  const commentsList = $('comments-list');
+  const commentsNotice = $('comments-notice');
+  const commentsForm = $('comment-form');
+  const commentContent = $('comment-content');
+  const commentSave = $('comment-save');
+  const commentPanel = $('comments-panel');
+  let commentsReady = false;
+  let commentBusy = false;
+  function commentNotice(message, isError = false) {
+    commentsNotice.textContent = message;
+    commentsNotice.classList.toggle('error', isError);
+  }
+  function safeDate(value) {
+    const ts = dateSeconds(value);
+    if (!Number.isFinite(ts)) return 'Date non disponible';
+    return new Date(ts * 1000).toLocaleString('fr-FR', {dateStyle: 'medium', timeStyle: 'short'});
+  }
+  function clearComments() {
+    commentsRevision++;
+    commentsList.replaceChildren();
+    commentPanel.classList.add('hidden');
+    commentContent.value = '';
+  }
+  function insertComment(item) {
+    const node = document.createElement('article');
+    node.className = 'comment-item';
+    const header = document.createElement('div');
+    header.className = 'comment-item-head';
+    const author = document.createElement('strong');
+    author.textContent = String(item.Auteur_Email || 'Auteur non renseigné');
+    const time = document.createElement('time');
+    time.textContent = safeDate(item.Date_Creation);
+    header.append(author, time);
+    const body = document.createElement('p');
+    body.textContent = String(item.Contenu || '');
+    node.append(header, body);
+    commentsList.appendChild(node);
+  }
+  async function loadComments(consultationId) {
+    const ticket = ++commentsRevision;
+    commentsList.replaceChildren();
+    commentPanel.classList.remove('hidden');
+    commentSave.disabled = true;
+    commentNotice('Chargement des commentaires…');
+    try {
+      // Seules les lignes autorisées par les ACL Grist sont retournées.
+      const raw = await grist.docApi.fetchTable(COMMENTS_TABLE, {keepEncoded: true});
+      if (ticket !== commentsRevision || String(selectedId) !== String(consultationId)) return;
+      const comments = rowsFrom(raw)
+        .filter(c => Number(c.Consultation) === Number(consultationId))
+        .sort((a,b) => dateSeconds(a.Date_Creation)-dateSeconds(b.Date_Creation) || Number(a.id)-Number(b.id));
+      comments.forEach(insertComment);
+      if (!comments.length) {
+        const empty = document.createElement('p');
+        empty.className = 'comments-empty';
+        empty.textContent = 'Aucun commentaire pour cette consultation.';
+        commentsList.appendChild(empty);
+      }
+      commentsReady = true;
+      const row = visibleRows.find(r => String(r.id) === String(consultationId));
+      const allowed = row?.Droit === 'commentaire';
+      commentNotice(allowed ? `${comments.length} commentaire(s). Vous pouvez en ajouter un si les ACL vous y autorisent.` : `${comments.length} commentaire(s). Consultation en lecture seule.`);
+      commentsForm.classList.toggle('hidden', !allowed);
+      commentSave.disabled = !allowed || commentBusy;
+    } catch (e) {
+      if (ticket !== commentsRevision) return;
+      commentsReady = false;
+      commentsForm.classList.add('hidden');
+      commentNotice('Commentaires indisponibles : table, niveau d’accès du widget ou ACL à vérifier.', true);
+      console.error('SIGMA commentaires — lecture :', e);
+    }
+  }
+  async function submitComment(event) {
+    event.preventDefault();
+    if (commentBusy || !commentsReady) return;
+    const row = visibleRows.find(r => String(r.id) === String(selectedId));
+    if (!row || row.Droit !== 'commentaire' || row.Statut !== 'Actif' || !(dateSeconds(row.Expiration) > Date.now()/1000)) {
+      commentNotice('Cette consultation n’autorise pas de commentaire.', true); return;
+    }
+    const content = commentContent.value.trim();
+    if (!content || content.length > 3000) { commentNotice('Saisissez un commentaire de 1 à 3 000 caractères.', true); return; }
+    commentBusy = true; commentSave.disabled = true;
+    try {
+      // Réévaluation de l’état de la copie avant écriture. Les ACL Grist restent l’autorité.
+      const refreshed = rowsFrom(await grist.docApi.fetchSelectedTable({keepEncoded: true}));
+      if (!refreshed.some(r => Number(r.id) === Number(row.id) && r.Statut === 'Actif' && r.Droit === 'commentaire' && dateSeconds(r.Expiration) > Date.now()/1000)) {
+        throw Error('La consultation a changé ou n’est plus active.');
+      }
+      await grist.docApi.applyUserActions([['AddRecord', COMMENTS_TABLE, null, {Consultation:Number(row.id), Contenu:content}]]);
+      commentContent.value = '';
+      await loadComments(row.id);
+      commentNotice('Commentaire enregistré.');
+    } catch (e) {
+      commentNotice('Commentaire non enregistré : droits Grist insuffisants ou contrôle de sécurité refusé. Vérifiez les ACL.', true);
+      console.error('SIGMA commentaires — écriture :', e);
+    } finally { commentBusy = false; commentSave.disabled = false; }
+  }
+  commentsForm.addEventListener('submit', submitComment);
   function status(message, type = '') {
     $('notice').textContent = message;
     $('notice').className = 'message' + (type ? ' ' + type : '');
@@ -16,6 +116,7 @@
     $('consultation-picker').classList.add('hidden');
     $('title').textContent = '';
     $('content').textContent = '';
+    clearComments();
     status(message, 'error');
   }
   function rowsFrom(data) {
@@ -61,6 +162,8 @@
     $('expiration').textContent = 'Échéance indicative : ' + new Date(dateSeconds(r.Expiration) * 1000).toLocaleDateString('fr-FR', {timeZone: 'UTC'});
     $('content').textContent = String(r.Contenu || 'Aucun contenu.');
     $('viewer').classList.remove('hidden');
+    commentsForm.classList.add('hidden');
+    void loadComments(r.id);
     status(visibleRows.length > 1 ? `${visibleRows.length} comptes rendus disponibles pour ce compte. Choisissez celui à consulter.` : 'Copie fictive en lecture seule. Aucun droit externe n’est activé par ce widget.', 'ok');
   }
   function showRows(rows) {
@@ -100,6 +203,7 @@
   async function reload() {
     const current = ++revision;
     $('viewer').classList.add('hidden');
+    clearComments();
     status('Chargement de votre consultation…');
     try {
       // Toujours utiliser le même chemin pour les chargements et notifications.
@@ -118,7 +222,9 @@
     hide('API Grist non chargée. Ouvrez cette page dans un widget personnalisé Grist.');
     return;
   }
-  grist.ready({requiredAccess: 'read table'});
+  // L’écriture d’un commentaire et la lecture de la table liée exigent l’accès widget « full ».
+  // Les ACL Grist doivent refuser tout accès métier non autorisé.
+  grist.ready({requiredAccess: 'full'});
   // onRecords sert uniquement de signal d'actualisation, sans traiter son format
   // potentiellement différent de fetchSelectedTable.
   grist.onRecords(() => { void reload(); });

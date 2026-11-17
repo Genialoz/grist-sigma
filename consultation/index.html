@@ -23,9 +23,15 @@
       <h1 id="title"></h1>
       <div class="meta"><span id="version"></span><span id="expiration"></span></div>
       <div id="content" class="content"></div>
-      <aside class="comments-preview" aria-label="Commentaires invités">
-        <div class="comments-header"><strong>Commentaires</strong><span class="coming">À venir</span></div>
-        <p>Les commentaires multiples seront disponibles après validation de leur table et des règles d’accès Grist. Aucune saisie n’est activée pour le moment.</p>
+      <aside id="comments-panel" class="comments-panel hidden" aria-label="Commentaires du compte rendu">
+        <div class="comments-header"><strong>Commentaires</strong><span class="coming">Version partagée</span></div>
+        <div id="comments-notice" class="comments-notice" role="status" aria-live="polite"></div>
+        <div id="comments-list" class="comments-list" aria-live="polite"></div>
+        <form id="comment-form" class="hidden">
+          <label for="comment-content">Ajouter un commentaire</label>
+          <textarea id="comment-content" maxlength="3000" rows="4" required placeholder="Votre commentaire sur cette version…"></textarea>
+          <div class="comment-actions"><small>Votre identité et la date seront enregistrées par Grist.</small><button type="submit" id="comment-save" disabled>Publier le commentaire</button></div>
+        </form>
       </aside>
       <footer><span><span class="dot"></span> Copie figée</span><span>Aucune modification de l'original</span></footer>
     </section>
