@@ -1,16 +1,19 @@
-/* SIGMA V1.0.16.6 TEST — lecture seule, aucune autorisation créée par le widget.
+/* SIGMA V1.0.16.7 TEST — lecture seule, aucune autorisation créée par le widget.
    Les ACL Grist sont indispensables ; l'expiration JS ne sécurise pas l'API. */
 'use strict';
 (() => {
   const $ = id => document.getElementById(id);
   const required = ['id', 'Email', 'Statut', 'Titre', 'Version_Numero', 'Contenu', 'Expiration'];
   let revision = 0;
+  let selectedId = null;
+  let visibleRows = [];
   function status(message, type = '') {
     $('notice').textContent = message;
     $('notice').className = 'message' + (type ? ' ' + type : '');
   }
   function hide(message) {
     $('viewer').classList.add('hidden');
+    $('consultation-picker').classList.add('hidden');
     $('title').textContent = '';
     $('content').textContent = '';
     status(message, 'error');
@@ -46,28 +49,54 @@
     }
     return NaN;
   }
+  function labelOf(row) {
+    const title = String(row.Titre || 'Compte rendu').trim();
+    return title.slice(0, 130) + ' · version ' + String(row.Version_Numero || '—');
+  }
+  function drawSelected() {
+    const r = visibleRows.find(row => String(row.id) === String(selectedId));
+    if (!r) { hide('Aucune consultation sélectionnée.'); return; }
+    $('title').textContent = String(r.Titre || 'Compte rendu');
+    $('version').textContent = 'Version ' + String(r.Version_Numero || '—');
+    $('expiration').textContent = 'Échéance indicative : ' + new Date(dateSeconds(r.Expiration) * 1000).toLocaleDateString('fr-FR', {timeZone: 'UTC'});
+    $('content').textContent = String(r.Contenu || 'Aucun contenu.');
+    $('viewer').classList.remove('hidden');
+    status(visibleRows.length > 1 ? `${visibleRows.length} comptes rendus disponibles pour ce compte. Choisissez celui à consulter.` : 'Copie fictive en lecture seule. Aucun droit externe n’est activé par ce widget.', 'ok');
+  }
   function showRows(rows) {
     const missing = rows.length ? required.filter(field => !(field in rows[0])) : [];
     if (missing.length) { hide('Configuration incomplète : colonnes manquantes (' + missing.join(', ') + ').'); return; }
     const now = Date.now() / 1000;
     const active = rows.filter(r => String(r.Statut || '').trim() === 'Actif');
-    const valid = active.filter(r => dateSeconds(r.Expiration) > now);
-    if (valid.length !== 1) {
-      if (valid.length > 1) { hide('Plusieurs consultations actives sont accessibles : affichage bloqué.'); return; }
+    // Filtrage d'affichage exclusivement : les ACL Grist doivent isoler les lignes AVANT leur transmission.
+    visibleRows = active.filter(r => dateSeconds(r.Expiration) > now).sort((a,b) => Number(b.id)-Number(a.id));
+    if (!visibleRows.length) {
+      selectedId = null;
       if (!rows.length) { hide('Aucune ligne accessible dans la table CONSULTATIONS_INVITEES. Vérifiez la vue et les ACL.'); return; }
       if (!active.length) { hide('Aucune ligne avec le statut exactement « Actif ». Vérifiez la valeur du champ Statut.'); return; }
       if (active.some(r => !Number.isFinite(dateSeconds(r.Expiration)))) { hide('Date d’expiration non reconnue. Vérifiez le type Date et la valeur de la colonne Expiration.'); return; }
       hide('La consultation est expirée. Vérifiez la date Expiration dans Grist.');
       return;
     }
-    const r = valid[0];
-    $('title').textContent = String(r.Titre || 'Compte rendu');
-    $('version').textContent = 'Version ' + String(r.Version_Numero || '—');
-    $('expiration').textContent = 'Échéance indicative : ' + new Date(dateSeconds(r.Expiration) * 1000).toLocaleDateString('fr-FR', {timeZone: 'UTC'});
-    $('content').textContent = String(r.Contenu || 'Aucun contenu.');
-    $('viewer').classList.remove('hidden');
-    status('Copie fictive en lecture seule. Aucun droit externe n’est activé par ce widget.', 'ok');
+    if (!visibleRows.some(r => String(r.id) === String(selectedId))) selectedId = visibleRows[0].id;
+    const picker = $('consultation-picker');
+    picker.classList.toggle('hidden', visibleRows.length < 2);
+    const select = $('consultation-select');
+    select.replaceChildren();
+    for (const row of visibleRows) {
+      const option = document.createElement('option');
+      option.value = String(row.id);
+      option.textContent = labelOf(row);
+      select.appendChild(option);
+    }
+    select.value = String(selectedId);
+    $('consultation-count').textContent = `${visibleRows.length} comptes rendus autorisés`;
+    drawSelected();
   }
+  $('consultation-select').addEventListener('change', event => {
+    selectedId = event.target.value;
+    drawSelected();
+  });
   async function reload() {
     const current = ++revision;
     $('viewer').classList.add('hidden');

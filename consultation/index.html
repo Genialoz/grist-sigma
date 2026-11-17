@@ -13,11 +13,20 @@
   <main class="shell">
     <header class="top"><div class="logo" aria-hidden="true">Σ</div><div><div class="brand">SIGMA <span class="sub">· Espace de consultation</span></div><p>Consultation individuelle d'un compte rendu</p></div></header>
     <section id="notice" class="message" role="status" aria-live="polite">Connexion sécurisée à Grist en cours…</section>
+    <section id="consultation-picker" class="picker hidden" aria-label="Choisir un compte rendu">
+      <label for="consultation-select">Choisir un compte rendu</label>
+      <select id="consultation-select"></select>
+      <small id="consultation-count"></small>
+    </section>
     <section id="viewer" class="card hidden" aria-label="Compte rendu partagé">
       <div class="eyebrow">Compte rendu partagé · lecture seule</div>
       <h1 id="title"></h1>
       <div class="meta"><span id="version"></span><span id="expiration"></span></div>
       <div id="content" class="content"></div>
+      <aside class="comments-preview" aria-label="Commentaires invités">
+        <div class="comments-header"><strong>Commentaires</strong><span class="coming">À venir</span></div>
+        <p>Les commentaires multiples seront disponibles après validation de leur table et des règles d’accès Grist. Aucune saisie n’est activée pour le moment.</p>
+      </aside>
       <footer><span><span class="dot"></span> Copie figée</span><span>Aucune modification de l'original</span></footer>
     </section>
     <div class="bottom"><button id="reload" type="button">Actualiser la consultation</button><p>Si ce compte rendu ne s'affiche pas, vérifiez votre accès auprès de la personne qui vous l'a partagé.</p></div>
