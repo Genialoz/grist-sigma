@@ -1,4 +1,4 @@
-/* SIGMA V1.0.16.5 TEST — lecture seule, aucune autorisation créée par le widget.
+/* SIGMA V1.0.16.6 TEST — lecture seule, aucune autorisation créée par le widget.
    Les ACL Grist sont indispensables ; l'expiration JS ne sécurise pas l'API. */
 'use strict';
 (() => {
@@ -28,6 +28,13 @@
   }
   function dateSeconds(value) {
     // L'API Grist peut fournir une Date sous forme numérique ou décodée.
+    // Avec keepEncoded:true, une date peut être un tableau ["D", secondes Unix].
+    // Le mode typé de Grist peut également utiliser le code "d".
+    if (Array.isArray(value)) {
+      if (value.length === 2 && (value[0] === 'D' || value[0] === 'd') &&
+          typeof value[1] === 'number' && Number.isFinite(value[1])) return value[1];
+      return NaN;  // Refuser les valeurs complexes inattendues.
+    }
     if (typeof value === 'number' && Number.isFinite(value)) return value;
     if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.getTime() / 1000 : NaN;
     if (typeof value === 'string' && value.trim()) {
