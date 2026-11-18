@@ -625,6 +625,7 @@ const documentShares = docId => tab('PARTAGES_DOCUMENTS').filter(p=>Number(p.Doc
 function renderDocumentCollaboration(doc){
   const available=!!doc;
   $('document-collaboration').classList.toggle('hidden',!available);
+  $('document-tracking').classList.toggle('hidden',!available);
   if(!available)return;
   $('comment-doc-id').value=doc.id;
   $('share-doc-id').value=doc.id;
@@ -661,7 +662,7 @@ function renderDocumentCollaboration(doc){
   const closedHtml=closedShares.length
     ?`<details class="sigma-fold sigma-share-closed"><summary>Historique des partages annulés ou refusés (${closedShares.length})</summary><div class="sigma-fold-body">${closedShares.map(renderShareCard).join('')}</div></details>`
     :'';
-  $('document-shares-list').innerHTML=`<h4>4. Suivi des destinataires et demandes en cours (${currentShares.length})</h4>${activeHtml}${closedHtml}`;
+  $('document-shares-list').innerHTML=`<p class="muted">${currentShares.length} demande(s) en cours</p>${activeHtml}${closedHtml}`;
   renderInvitedExchangeOverview(doc, shares);
   renderMailChoices(doc);
 }
@@ -701,6 +702,8 @@ document.addEventListener('click',e=>{
   const b=e.target.closest('[data-sigma-share-focus]');if(!b)return;
   const id=Number(b.dataset.sigmaShareFocus);
   const list=$('document-shares-list');
+  sigmaActivateTab('document-tab-tracking');
+  $('sigma-tracking-list').open=true;
   // Pas de requête vers un autre document ni de divulgation de commentaires.
   const target=list.querySelector(`[data-sigma-share-card="${id}"]`);
   if(target){target.scrollIntoView({behavior:'smooth',block:'center'});target.classList.add('sigma-share-focused');setTimeout(()=>target.classList.remove('sigma-share-focused'),1800);}
@@ -1059,7 +1062,7 @@ function sigmaActivateTab(target){
           if(isDossierPanel){
             fold.open=true;
           }else{
-            fold.open=target==='document-tab-history';
+            fold.open=target==='document-tab-history' || (target==='document-tab-share' && fold.id==='sigma-new-share');
           }
         }
       }
@@ -1067,7 +1070,7 @@ function sigmaActivateTab(target){
   }
 }
 function sigmaDocumentTabAvailability(exists){
-  for(const id of ['btn-document-tab-history','btn-document-tab-read','btn-document-tab-share']){
+  for(const id of ['btn-document-tab-history','btn-document-tab-read','btn-document-tab-share','btn-document-tab-tracking']){
     const btn=document.getElementById(id);if(btn)btn.disabled=!exists;
   }
 }
