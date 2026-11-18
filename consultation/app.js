@@ -1,4 +1,4 @@
-/* SIGMA V1.0.17 TEST — interface de décision préparée, écritures verrouillées.
+/* SIGMA V1.0.18 TEST — interface de décision préparée, écritures verrouillées.
    Les ACL Grist sont indispensables ; l'expiration JS ne sécurise pas l'API. */
 'use strict';
 (() => {
@@ -16,7 +16,7 @@
   let decisionBusy = false;
   let decisionRequestRevision = 0;
   // Verrou volontaire : ne pas passer à true avant tests ACL par API (A/B, usurpation, doublons).
-  const DECISION_WRITES_ENABLED = false;
+  const DECISION_WRITES_ENABLED = true;
   const decisionForm = $('decision-form');
   const decisionMessage = $('decision-message');
   const decisionNotice = $('decision-notice');
@@ -71,10 +71,15 @@
       }
       // Le widget ne transmet ni auteur ni horodatage : Grist les initialise.
       // Les ACL côté serveur doivent néanmoins empêcher leur usurpation par API.
-      await grist.docApi.applyUserActions([['AddRecord', EVENTS_TABLE, null, {
-        Validation: Number(activeValidation.id), Type_Evenement: type,
-        Message: type === 'Correction demandée' ? message.trim() : ''
-      }]]);
+      await grist.docApi.applyUserActions([
+        ['UpdateRecord', VALIDATIONS_TABLE, Number(activeValidation.id), {Statut: type}],
+        ['AddRecord', EVENTS_TABLE, null, {
+          Validation: Number(activeValidation.id), Type_Evenement: type,
+          Version_Numero: Number(activeValidation.Version_Numero),
+          Auteur_Email: String(row.Email),
+          Message: type === 'Correction demandée' ? message.trim() : ''
+        }]
+      ]);
       decisionForm.classList.add('hidden');
       decisionNotice.textContent = 'Décision transmise.';
       await loadValidation(row.id);
@@ -277,7 +282,7 @@
           .sort((a,b) => dateSeconds(a.Date_Evenement)-dateSeconds(b.Date_Evenement) || Number(a.id)-Number(b.id));
         if (ticket !== validationRevision || String(selectedId) !== String(consultationId)) return;
         const result = computeDecision(events);
-        state.textContent = result.status;
+        state.textContent = result.hasDecision ? result.status : (['Validé','Correction demandée'].includes(String(validation.Statut)) ? 'Décision enregistrée, historique à vérifier : ' + validation.Statut : result.status);
         for (const e of events) {
           const item = document.createElement('article');
           item.className = 'validation-event';
