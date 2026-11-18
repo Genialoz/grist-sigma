@@ -224,3 +224,11 @@
 .form-grid .sigma-checkbox-field{display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:600;min-width:0}
 .form-grid .sigma-checkbox-field .sigma-checkbox-title{display:block}
 .form-grid .sigma-checkbox-field .checks label{font-weight:400}
+
+/* V1.0.16.14 — détails de suivi local des partages, sans accès interdocuments */
+.sigma-exchange-details{flex:1;min-width:0}
+.sigma-exchange-audit{margin-top:10px;padding:10px 12px;background:#fff;border:1px solid #dce6f0;border-radius:8px;font-size:12px;line-height:1.5}
+.sigma-exchange-audit summary{cursor:pointer;font-weight:600;color:#24425f}
+.sigma-exchange-audit ol,.sigma-exchange-audit ul{padding-left:22px;margin:7px 0}
+.sigma-exchange-alerts{color:#8b3c12}
+.sigma-share-focused{outline:3px solid #2b967d;outline-offset:3px;transition:outline-color .2s}

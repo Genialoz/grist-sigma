@@ -649,7 +649,7 @@ function renderDocumentCollaboration(doc){
     const consultInfo=consult?`<p class="muted">Document préparé : <strong>${esc(consult.Statut||'Préparé')}</strong> (ligne ${consult.id}) · <strong>${esc(consult.Email||'')}</strong>. ${consult.Statut==='Actif'?'Révoquer immédiatement dans Grist si nécessaire.':'En attente d’autorisation technique : aucun accès invité.'}</p>`:'';
     const prepareBtn=p.Statut==='Vérifié' && !expired && ver && !consult ? `<button type="button" class="row-button" data-share-snapshot="${p.id}">Préparer la copie manquante</button>` : '';
     const actions=p.Statut==='Projet' ? `<button type="button" class="row-button" data-share-review="${p.id}" ${expired||!ver?'disabled':''}>Préparer le compte rendu</button> <button type="button" class="row-button" data-share-reject="${p.id}">Refuser</button> <button type="button" class="row-button" data-share-cancel="${p.id}">Annuler</button>` : (p.Statut==='Vérifié' ? `<button type="button" class="row-button" data-share-cancel="${p.id}">Annuler le partage prévu</button>` : '');
-    return `<div class="collab-item"><div><strong>${esc(p.Destinataire)}</strong> <span class="pill ${['Annulé','Refusé'].includes(p.Statut)?'done':'wait'}">${esc(status)}</span><small>${esc(p.Email)} · ${esc(p.Droit)} · ${ver?'Version '+esc(ver.Numero_Version):'Version non spécifiée (ancien projet)'} · échéance ${dateText(p.Expiration)} · ${prettyDateTime(p.Date_Creation)}</small><p class="comment-text">${esc(p.Message||'Aucun message')}</p><p class="muted"><strong>La demande seule ne donne aucun accès.</strong></p>${consultInfo}<details class="share-log"><summary>Historique des décisions (${history.length})</summary>${history.map(e=>`<p><small>${prettyDateTime(e.Date_Evenement)} · ${esc(e.Action)} · ${esc(e.Auteur)} — ${esc(e.Motif||'Sans motif')}</small></p>`).join('')||'<p>Aucune décision enregistrée.</p>'}</details></div><div class="share-actions">${prepareBtn} ${actions}</div></div>`;
+    return `<div class="collab-item" data-sigma-share-card="${Number(p.id)}"><div><strong>${esc(p.Destinataire)}</strong> <span class="pill ${['Annulé','Refusé'].includes(p.Statut)?'done':'wait'}">${esc(status)}</span><small>${esc(p.Email)} · ${esc(p.Droit)} · ${ver?'Version '+esc(ver.Numero_Version):'Version non spécifiée (ancien projet)'} · échéance ${dateText(p.Expiration)} · ${prettyDateTime(p.Date_Creation)}</small><p class="comment-text">${esc(p.Message||'Aucun message')}</p><p class="muted"><strong>La demande seule ne donne aucun accès.</strong></p>${consultInfo}<details class="share-log"><summary>Historique des décisions (${history.length})</summary>${history.map(e=>`<p><small>${prettyDateTime(e.Date_Evenement)} · ${esc(e.Action)} · ${esc(e.Auteur)} — ${esc(e.Motif||'Sans motif')}</small></p>`).join('')||'<p>Aucune décision enregistrée.</p>'}</details></div><div class="share-actions">${prepareBtn} ${actions}</div></div>`;
   };
   // Les demandes clôturées restent consultables, mais ne repoussent plus
   // les destinataires en cours : historique fermé par défaut.
@@ -671,17 +671,27 @@ function renderInvitedExchangeOverview(doc, shares){
   const target=$('sigma-invited-exchanges');
   if(!target)return;
   const query=($('sigma-exchange-filter')?.value||'').trim().toLocaleLowerCase('fr');
-  const list=shares.filter(p=>[p.Destinataire,p.Email,p.Statut].some(v=>String(v||'').toLocaleLowerCase('fr').includes(query)));
+  const list=shares.filter(p=>[p.Destinataire,p.Email,p.Statut,String(p.id)].some(v=>String(v||'').toLocaleLowerCase('fr').includes(query)));
   const now=Date.now()/1000;
   const active=shares.filter(p=>!['Annulé','Refusé'].includes(p.Statut)).length;
   $('sigma-exchange-summary').textContent=`${shares.length} demande(s) · ${active} non clôturée(s) · ${list.length} affichée(s)`;
   target.innerHTML=list.map(p=>{
-    const copy=tab('CONSULTATIONS_INVITEES').find(c=>Number(c.Partage_ID)===Number(p.id));
-    const expired=Number(p.Expiration)>0&&Number(p.Expiration)+86400<=now;
-    const revoked=copy?.Statut==='Révoqué'||['Annulé','Refusé'].includes(p.Statut);
-    const status=revoked?'Révoqué / clôturé':expired?'Échéance dépassée':copy?.Statut==='Actif'?'Actif dans le miroir local':copy?'Copie '+String(copy.Statut||'préparée'):'Copie non renseignée';
+    const copies=tab('CONSULTATIONS_INVITEES').filter(c=>Number(c.Partage_ID)===Number(p.id));
+    const copy=copies[0];
     const version=byId('VERSIONS_DOCUMENTS',p.Version);
-    return `<article class="sigma-exchange-card"><div><strong>${esc(p.Destinataire||'Destinataire non renseigné')}</strong><small>${esc(p.Email||'')} · ${esc(p.Droit||'')} · ${version?'Version '+esc(version.Numero_Version):'Version inconnue'}</small><small>Partage #${Number(p.id)} · ${esc(status)} · échéance ${dateText(p.Expiration)}</small></div><div class="sigma-exchange-actions"><span class="pill ${revoked||expired?'done':'wait'}">${esc(status)}</span><button type="button" class="row-button" data-sigma-share-focus="${Number(p.id)}">Voir le partage</button></div></article>`;
+    const expired=Number(p.Expiration)>0&&Number(p.Expiration)+86400<=now;
+    const closed=['Annulé','Refusé'].includes(p.Statut);
+    const status=closed?'Demande clôturée':expired?'Échéance dépassée':copy?.Statut==='Actif'?'Copie marquée active':copy?'Copie '+String(copy.Statut||'préparée'):'Aucune copie locale';
+    const issues=[];
+    if(copies.length>1)issues.push('Plusieurs copies locales pour un même partage : vérifier les doublons.');
+    if(!version || Number(version.Document)!==Number(doc.id))issues.push('Version source introuvable ou associée à un autre compte rendu.');
+    if(copy && String(copy.Email||'').trim().toLowerCase()!==String(p.Email||'').trim().toLowerCase())issues.push('Adresse différente entre la demande et la copie locale.');
+    if(copy && version && Number(copy.Version_Numero)!==Number(version.Numero_Version))issues.push('Numéro de version différent entre la demande et la copie locale.');
+    if(closed && copy?.Statut==='Actif')issues.push('Demande clôturée mais copie encore marquée active : révocation à vérifier dans le document Consultations.');
+    if(expired && copy?.Statut==='Actif')issues.push('Échéance dépassée mais copie encore marquée active : expiration serveur non confirmée.');
+    const history=tab('HISTORIQUE_PARTAGES').filter(e=>Number(e.Partage)===Number(p.id)).sort((a,b)=>Number(a.Date_Evenement)-Number(b.Date_Evenement)||a.id-b.id);
+    const historyHtml=history.map(e=>`<li>${prettyDateTime(e.Date_Evenement)} — ${esc(e.Action||'Décision')} · ${esc(e.Auteur||'Auteur non renseigné')}${e.Motif?' — '+esc(e.Motif):''}</li>`).join('')||'<li>Aucun événement enregistré.</li>';
+    return `<article class="sigma-exchange-card" data-sigma-exchange-id="${Number(p.id)}"><div class="sigma-exchange-details"><strong>${esc(p.Destinataire||'Destinataire non renseigné')}</strong><small>${esc(p.Email||'')} · ${esc(p.Droit||'')} · ${version?'Version '+esc(version.Numero_Version):'Version inconnue'}</small><small>Partage #${Number(p.id)} · ${esc(status)} · échéance ${dateText(p.Expiration)}</small><details class="sigma-exchange-audit"><summary>Suivi du partage et points de vigilance${issues.length?' ('+issues.length+')':''}</summary><p>Demande : <strong>${esc(p.Statut||'Non renseigné')}</strong> · Copie locale : <strong>${esc(copy?.Statut||'Absente')}</strong> · ${copies.length} copie(s) trouvée(s).</p>${issues.length?`<ul class="sigma-exchange-alerts">${issues.map(issue=>`<li>${esc(issue)}</li>`).join('')}</ul>`:'<p>Aucune incohérence détectée dans les données locales. Les ACL et l’accès réel restent à contrôler dans SIGMA - Consultations.</p>'}<p><strong>Historique des décisions</strong></p><ol>${historyHtml}</ol></details></div><div class="sigma-exchange-actions"><span class="pill ${closed||expired?'done':'wait'}">${esc(status)}</span><button type="button" class="row-button" data-sigma-share-focus="${Number(p.id)}">Voir le partage</button></div></article>`;
   }).join('')||'<p class="muted">Aucun destinataire ne correspond à la recherche.</p>';
 }
 $('sigma-exchange-filter').addEventListener('input',()=>{
@@ -692,9 +702,9 @@ document.addEventListener('click',e=>{
   const id=Number(b.dataset.sigmaShareFocus);
   const list=$('document-shares-list');
   // Pas de requête vers un autre document ni de divulgation de commentaires.
-  const target=list.querySelector(`[data-share-cancel="${id}"], [data-share-review="${id}"], [data-share-snapshot="${id}"]`);
-  if(target){target.closest('.collab-item')?.scrollIntoView({behavior:'smooth',block:'center'});}
-  else {list.scrollIntoView({behavior:'smooth',block:'start'});notify('Retrouve ce destinataire dans la liste des partages.');}
+  const target=list.querySelector(`[data-sigma-share-card="${id}"]`);
+  if(target){target.scrollIntoView({behavior:'smooth',block:'center'});target.classList.add('sigma-share-focused');setTimeout(()=>target.classList.remove('sigma-share-focused'),1800);}
+  else {list.scrollIntoView({behavior:'smooth',block:'start'});notify('Destinataire introuvable dans la liste des partages.');}
 });
 // V1.0.5 : aperçu et commentaires strictement liés à la version choisie.
 function renderReadVersion(doc){
