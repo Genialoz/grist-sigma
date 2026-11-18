@@ -1,4 +1,4 @@
-/* SIGMA V1.0.16.28 TEST — interface de décision préparée, écritures verrouillées.
+/* SIGMA V1.0.16.29 TEST — interface de décision préparée, écritures verrouillées.
    Les ACL Grist sont indispensables ; l'expiration JS ne sécurise pas l'API. */
 'use strict';
 (() => {
@@ -217,8 +217,14 @@
     const title = String(row.Titre || 'Compte rendu').trim();
     return title.slice(0, 130) + ' · version ' + String(row.Version_Numero || '—');
   }
-  // Lecture seule : les tables de validation restent interdites aux non-propriétaires
-  // tant que les ACL d'écriture et d'authentification n'ont pas été éprouvées.
+  // Statut affiché déduit des événements de décision visibles, sans faire confiance
+  // à un champ Statut qui pourrait être resté à « En attente ». Lecture seule.
+  function computeDecision(events) {
+    const decisions = events.filter(e => ['Validé', 'Correction demandée'].includes(String(e.Type_Evenement || '')));
+    if (!decisions.length) return {status: 'En attente de décision', hasDecision: false};
+    if (decisions.length > 1) return {status: 'Anomalie : plusieurs décisions enregistrées pour cette demande. Contactez le gestionnaire.', hasDecision: true};
+    return {status: decisions[0].Type_Evenement === 'Validé' ? 'Compte rendu validé' : 'Correction demandée', hasDecision: true};
+  }
   async function loadValidation(consultationId) {
     const ticket = ++validationRevision;
     resetDecision();
@@ -238,18 +244,12 @@
         state.textContent = 'Aucune demande de validation pour cette version.';
         return;
       }
-      const statuses = {'En attente':'En attente de décision', 'Valide':'Compte rendu validé',
-        'Validé':'Compte rendu validé', 'Correction demandée':'Correction demandée',
-        'Cloture':'Demande clôturée', 'Clôturé':'Demande clôturée'};
-      state.textContent = statuses[String(validation.Statut || '')] ||
-        ('État de la demande : ' + String(validation.Statut || 'Non renseigné'));
-      const eligible = String(validation.Statut || '') === 'En attente' &&
-        row?.Statut === 'Actif' && dateSeconds(row.Expiration) > Date.now()/1000;
-      if (eligible) activeValidation = validation;
-      setDecisionAvailability(Boolean(DECISION_WRITES_ENABLED && eligible));
+      // En l'absence de lecture de l'historique, on n'affiche pas un statut
+      // potentiellement périmé comme s'il était la décision officielle.
+      state.textContent = 'Chargement de l’historique des décisions…';
       if (validation.Date_Decision) {
         const p = document.createElement('p');
-        p.textContent = 'Décision enregistrée le ' + safeDate(validation.Date_Decision);
+        p.textContent = 'Date de décision indiquée dans la demande : ' + safeDate(validation.Date_Decision);
         history.appendChild(p);
       }
       try {
@@ -257,6 +257,8 @@
           .filter(e => Number(e.Validation) === Number(validation.id))
           .sort((a,b) => dateSeconds(a.Date_Evenement)-dateSeconds(b.Date_Evenement) || Number(a.id)-Number(b.id));
         if (ticket !== validationRevision || String(selectedId) !== String(consultationId)) return;
+        const result = computeDecision(events);
+        state.textContent = result.status;
         for (const e of events) {
           const item = document.createElement('article');
           item.className = 'validation-event';
@@ -267,9 +269,17 @@
           item.append(heading, message);
           history.appendChild(item);
         }
+        // Les actions restent verrouillées tant que les règles serveur ne sont
+        // pas validées. La décision ne peut pas être déduite du seul statut de ligne.
+        const eligible = !result.hasDecision && String(validation.Statut || '') === 'En attente' &&
+          row?.Statut === 'Actif' && dateSeconds(row.Expiration) > Date.now()/1000;
+        if (eligible) activeValidation = validation;
+        setDecisionAvailability(Boolean(DECISION_WRITES_ENABLED && eligible));
       } catch (err) {
-        // Une table d'événements non lisible ne doit pas révéler l'existence de lignes.
-        console.info('Historique des validations non accessible avec ces droits.');
+        if (ticket !== validationRevision || String(selectedId) !== String(consultationId)) return;
+        state.textContent = 'Historique de validation indisponible : impossible de confirmer une décision.';
+        setDecisionAvailability(false);
+        console.info('SIGMA : historique de validation non accessible.');
       }
     } catch (err) {
       if (ticket !== validationRevision || String(selectedId) !== String(consultationId)) return;
