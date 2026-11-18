@@ -1,4 +1,4 @@
-/* SIGMA V1.0.16.8 TEST — lecture seule, aucune autorisation créée par le widget.
+/* SIGMA V1.0.16.18 TEST — lecture seule, aucune autorisation créée par le widget.
    Les ACL Grist sont indispensables ; l'expiration JS ne sécurise pas l'API. */
 'use strict';
 (() => {
@@ -117,6 +117,7 @@
     $('title').textContent = '';
     $('content').textContent = '';
     clearComments();
+    $('validation-panel').classList.add('hidden');
     status(message, 'error');
   }
   function rowsFrom(data) {
@@ -162,6 +163,9 @@
     $('expiration').textContent = 'Échéance indicative : ' + new Date(dateSeconds(r.Expiration) * 1000).toLocaleDateString('fr-FR', {timeZone: 'UTC'});
     $('content').textContent = String(r.Contenu || 'Aucun contenu.');
     $('viewer').classList.remove('hidden');
+    // Le panneau est informatif tant que la table dédiée et ses ACL ne sont pas validées.
+    // Ne jamais déduire une validation d'un commentaire ordinaire.
+    $('validation-panel').classList.remove('hidden');
     commentsForm.classList.add('hidden');
     void loadComments(r.id);
     status(visibleRows.length > 1 ? `${visibleRows.length} comptes rendus disponibles pour ce compte. Choisissez celui à consulter.` : 'Copie fictive en lecture seule. Aucun droit externe n’est activé par ce widget.', 'ok');

@@ -30,3 +30,10 @@
 #comment-save{border:0;background:#23468d;color:#fff;border-radius:9px;padding:12px 18px;font:inherit;font-weight:700;cursor:pointer}
 #comment-save:disabled{opacity:.5;cursor:default}
 @media(min-width:900px){.shell:has(.comments-panel:not(.hidden)){width:min(1170px,calc(100% - 32px))}.card:has(.comments-panel:not(.hidden)){display:grid;grid-template-columns:minmax(0,1.3fr) minmax(300px,1fr);column-gap:36px}.card h1,.card .eyebrow,.card .meta,.card footer{grid-column:1/-1}.card .content{grid-column:1;min-width:0}.comments-panel{grid-column:2;grid-row:4;margin-top:26px}}
+
+/* V1.0.16.18 TEST : séparation consultation et future validation */
+.validation-panel{margin:20px 0;padding:18px;border:1px solid #d9e1ed;border-radius:12px;background:#f7f9fd}
+.validation-panel h2{margin:0 0 8px;font-size:1.1rem}
+.validation-panel p{line-height:1.5}
+.validation-state{padding:12px;border-radius:8px;background:#fff;border:1px solid #d9e1ed;font-weight:600}
+.validation-warning{font-size:.88rem;color:#72562b}

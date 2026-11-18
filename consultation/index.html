@@ -11,7 +11,7 @@
 </head>
 <body>
   <main class="shell">
-    <header class="top"><div class="logo" aria-hidden="true">Σ</div><div><div class="brand">SIGMA <span class="sub">· Espace de consultation</span></div><p>Consultation individuelle d'un compte rendu</p></div></header>
+    <header class="top"><div class="logo" aria-hidden="true">Σ</div><div><div class="brand">SIGMA <span class="sub">· Espace de consultation · V1.0.16.18 TEST</span></div><p>Consultation individuelle d'un compte rendu</p></div></header>
     <section id="notice" class="message" role="status" aria-live="polite">Connexion sécurisée à Grist en cours…</section>
     <section id="consultation-picker" class="picker hidden" aria-label="Choisir un compte rendu">
       <label for="consultation-select">Choisir un compte rendu</label>
@@ -23,6 +23,12 @@
       <h1 id="title"></h1>
       <div class="meta"><span id="version"></span><span id="expiration"></span></div>
       <div id="content" class="content"></div>
+      <section id="validation-panel" class="validation-panel hidden" aria-label="Validation du compte rendu">
+        <h2>Validation du compte rendu</h2>
+        <p id="validation-description">Ce compte rendu est transmis pour consultation. Une demande de validation distincte doit être préparée par les gestionnaires.</p>
+        <div id="validation-state" class="validation-state">Aucune demande de validation active pour cette copie.</div>
+        <p class="validation-warning">La validation et les demandes de correction ne sont pas encore activées. Aucun clic dans cet espace ne vaut accord sur le compte rendu.</p>
+      </section>
       <aside id="comments-panel" class="comments-panel hidden" aria-label="Commentaires du compte rendu">
         <div class="comments-header"><strong>Commentaires</strong><span class="coming">Version partagée</span></div>
         <div id="comments-notice" class="comments-notice" role="status" aria-live="polite"></div>
