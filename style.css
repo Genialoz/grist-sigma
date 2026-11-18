@@ -219,3 +219,8 @@
 /* V1.0.16.12 : zone de clic des cases indépendante du sélecteur de droits. */
 .assign-item .sigma-check-label,.access-item .sigma-check-label{display:flex;align-items:center;gap:10px;flex:1 1 200px;min-width:0;cursor:pointer}
 .assign-item .sigma-check-label span,.access-item .sigma-check-label span{min-width:0;overflow-wrap:anywhere}
+
+/* SIGMA V1.0.16.13 TEST — conteneurs de cases sans label englobant */
+.form-grid .sigma-checkbox-field{display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:600;min-width:0}
+.form-grid .sigma-checkbox-field .sigma-checkbox-title{display:block}
+.form-grid .sigma-checkbox-field .checks label{font-weight:400}
