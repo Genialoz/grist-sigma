@@ -663,7 +663,6 @@ function renderDocumentCollaboration(doc){
     ?`<details class="sigma-fold sigma-share-closed"><summary>Historique des partages annulés ou refusés (${closedShares.length})</summary><div class="sigma-fold-body">${closedShares.map(renderShareCard).join('')}</div></details>`
     :'';
   $('document-shares-list').innerHTML=`<p class="muted">${currentShares.length} demande(s) en cours</p>${activeHtml}${closedHtml}`;
-  renderInvitedExchangeOverview(doc, shares);
   void sigmaLoadExternalWorkflow(doc.id);
   renderMailChoices(doc);
 }
@@ -715,20 +714,28 @@ async function sigmaLoadExternalWorkflow(docId){
    const share=byId('PARTAGES_DOCUMENTS',Number(c.Partage_ID));
    return share&&Number(share.Document)===Number(docId);
   });
-  target.innerHTML=copies.map(c=>{
+  const search=String($('sigma-exchange-filter')?.value||'').trim().toLocaleLowerCase('fr');
+  const shareRecords=tab('PARTAGES_DOCUMENTS').filter(p=>Number(p.Document)===Number(docId));
+  const items=copies.map(c=>({copy:c,share:shareRecords.find(p=>Number(p.id)===Number(c.Partage_ID))}));
+  const filtered=items.filter(({copy:c,share:p})=>[c.Email,c.Statut,c.Version_Numero,p?.Destinataire,p?.Statut].some(v=>String(v??'').toLocaleLowerCase('fr').includes(search)));
+  $('sigma-exchange-summary').textContent=`${filtered.length} destinataire(s) affiché(s) sur ${items.length}`;
+  target.innerHTML=filtered.map(({copy:c,share:p})=>{
    const related=validations.filter(v=>Number(v.Consultation)===Number(c.id)&&Number(v.Version_Numero)===Number(c.Version_Numero));
    const request=related.sort((x,y)=>y.id-x.id)[0];
    const ev=request?events.filter(e=>Number(e.Validation)===Number(request.id)).sort((x,y)=>Number(x.Date_Evenement)-Number(y.Date_Evenement)||x.id-y.id):[];
    const decisions=ev.filter(e=>['Validé','Correction demandée'].includes(String(e.Type_Evenement)));
-   const status=!request?'Aucune demande':decisions.length>1?'Anomalie : décisions multiples':decisions.length?decisions[0].Type_Evenement:'En attente';
+   const status=!request?'Sans demande':decisions.length>1?'Décisions multiples':decisions.length?decisions[0].Type_Evenement:'En attente';
    const messages=comments.filter(m=>Number(m.Consultation)===Number(c.id)).sort((x,y)=>Number(x.Date_Creation)-Number(y.Date_Creation)||x.id-y.id);
-   const active=c.Statut==='Actif' && Number(c.Expiration)+86400>Date.now()/1000;
-   return `<article class="sigma-exchange-card"><div class="sigma-exchange-details"><strong>${esc(c.Email)}</strong><small>Copie #${c.id} · Version ${esc(c.Version_Numero)} · ${esc(c.Statut)} · Validation : ${esc(status)}</small>
-    <div class="sigma-external-thread"><h4>Commentaires confidentiels (${messages.length})</h4>${messages.map(m=>`<p><strong>${esc(m.Auteur_Email||'Auteur')}</strong> · ${prettyDateTime(m.Date_Creation)}<br>${esc(m.Contenu)}</p>`).join('')||'<p class="muted">Aucun commentaire.</p>'}</div>
-    <div><h4>Décisions (${ev.length})</h4>${ev.map(e=>`<p>${esc(e.Type_Evenement)} · ${prettyDateTime(e.Date_Evenement)} — ${esc(e.Message||'')}</p>`).join('')||'<p class="muted">Aucune décision.</p>'}</div>
-    ${active?`<form class="sigma-external-reply" data-consultation="${c.id}"><label>Répondre à cet invité<textarea name="message" maxlength="3000" required rows="2" placeholder="Réponse visible uniquement par cet invité"></textarea></label><button type="submit" class="row-button">Répondre</button></form>`:''}
-   </div><div class="sigma-exchange-actions">${active&&!request?`<button type="button" class="row-button" data-sigma-validation-create="${c.id}">Demander validation</button>`:''}</div></article>`;
-  }).join('')||'<p class="muted">Aucune copie de consultation pour ce compte rendu.</p>';
+   const active=c.Statut==='Actif' && (!Number(c.Expiration)||Number(c.Expiration)+86400>Date.now()/1000);
+   const closed=['Annulé','Refusé'].includes(String(p?.Statut||''));
+   return `<details class="sigma-recipient" data-consultation-id="${Number(c.id)}"><summary class="sigma-recipient-summary"><span class="sigma-recipient-person"><strong>${esc(p?.Destinataire||c.Email||'Destinataire')}</strong><small>${esc(c.Email)} · Version ${esc(c.Version_Numero)} · ${messages.length} commentaire(s)</small></span><span class="sigma-recipient-status">${esc(status)}${closed?' · Partage clôturé':''}</span><span class="sigma-recipient-toggle">Détails</span></summary>
+    <div class="sigma-recipient-body"><p class="muted">Copie #${Number(c.id)} · ${esc(c.Statut||'Statut inconnu')} · Partage #${Number(p?.id||c.Partage_ID)}</p>
+    <section class="sigma-external-thread"><h4>Commentaires confidentiels (${messages.length})</h4>${messages.map(m=>`<p><strong>${esc(m.Auteur_Email||'Auteur')}</strong> · ${prettyDateTime(m.Date_Creation)}<br>${esc(m.Contenu)}</p>`).join('')||'<p class="muted">Aucun commentaire.</p>'}</section>
+    <section><h4>Historique des décisions (${ev.length})</h4>${ev.map(e=>`<p>${esc(e.Type_Evenement)} · ${prettyDateTime(e.Date_Evenement)} — ${esc(e.Message||'')}</p>`).join('')||'<p class="muted">Aucune décision.</p>'}</section>
+    <div class="sigma-recipient-actions">${active&&!request?`<button type="button" class="row-button" data-sigma-validation-create="${Number(c.id)}">Demander validation</button>`:''}${p?`<button type="button" class="row-button" data-sigma-share-focus="${Number(p.id)}">Voir le partage</button>`:''}</div>
+    ${active?`<form class="sigma-external-reply" data-consultation="${Number(c.id)}"><label>Répondre à cet invité<textarea name="message" maxlength="3000" required rows="2" placeholder="Réponse visible uniquement par cet invité"></textarea></label><button type="submit" class="row-button">Répondre</button></form>`:''}
+    </div></details>`;
+  }).join('')||'<p class="muted">Aucun destinataire ne correspond à la recherche pour ce compte rendu.</p>';
  }catch(err){if(ticket===sigmaExternalLoadRevision){target.textContent='Accès aux validations ou commentaires refusé par Grist. Vérifiez les ACL du gestionnaire.';console.error('SIGMA suivi externe',err);}}
 }
 document.addEventListener('click',async e=>{
@@ -760,7 +767,7 @@ document.addEventListener('submit',async e=>{
  }catch(err){notify('Réponse non enregistrée : '+err.message);}finally{button.disabled=false;}
 });
 $('sigma-exchange-filter').addEventListener('input',()=>{
-  const doc=currentDoc();if(doc)renderInvitedExchangeOverview(doc,documentShares(doc.id));
+  const doc=currentDoc();if(doc)void sigmaLoadExternalWorkflow(doc.id);
 });
 document.addEventListener('click',e=>{
   const b=e.target.closest('[data-sigma-share-focus]');if(!b)return;
