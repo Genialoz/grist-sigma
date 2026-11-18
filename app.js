@@ -1,4 +1,4 @@
-/* SIGMA V1.0.16.15 TEST — préparation automatique des courriels ; ACL Grist obligatoires. */
+/* SIGMA V1.0.17 TEST — circuit gestionnaire de validation externe ; ACL Grist obligatoires. */
 'use strict';
 const TABLES = ['SIGNALEMENTS','ACADEMIES','STATUTS','MOTIFS','SIGNALEMENT_MOTIFS','UTILISATEURS','HABILITATIONS','PERSONNES','SIGNALEMENT_PERSONNES','ACTIONS','HISTORIQUE_STATUTS','HISTORIQUE_ARCHIVAGE','RENDEZ_VOUS','PARTICIPANTS_RDV','DOCUMENTS','VERSIONS_DOCUMENTS','COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS','HISTORIQUE_PARTAGES','CONSULTATIONS_INVITEES','MODELES_COURRIELS'];
 const state = {data:{},view:'dashboard',busy:false,dossierSuivi:null,agendaDate:new Date(),agendaMode:'semaine',rdvDossier:null,archiveYear:null,returnFromDossier:'dossiers'};
@@ -664,6 +664,7 @@ function renderDocumentCollaboration(doc){
     :'';
   $('document-shares-list').innerHTML=`<p class="muted">${currentShares.length} demande(s) en cours</p>${activeHtml}${closedHtml}`;
   renderInvitedExchangeOverview(doc, shares);
+  void sigmaLoadExternalWorkflow(doc.id);
   renderMailChoices(doc);
 }
 // V1.0.16.9 TEST — suivi des échanges sans accès interdocuments.
@@ -695,6 +696,69 @@ function renderInvitedExchangeOverview(doc, shares){
     return `<article class="sigma-exchange-card" data-sigma-exchange-id="${Number(p.id)}"><div class="sigma-exchange-details"><strong>${esc(p.Destinataire||'Destinataire non renseigné')}</strong><small>${esc(p.Email||'')} · ${esc(p.Droit||'')} · ${version?'Version '+esc(version.Numero_Version):'Version inconnue'}</small><small>Partage #${Number(p.id)} · ${esc(status)} · échéance ${dateText(p.Expiration)}</small><details class="sigma-exchange-audit"><summary>Suivi du partage et points de vigilance${issues.length?' ('+issues.length+')':''}</summary><p>Demande : <strong>${esc(p.Statut||'Non renseigné')}</strong> · Copie locale : <strong>${esc(copy?.Statut||'Absente')}</strong> · ${copies.length} copie(s) trouvée(s).</p>${issues.length?`<ul class="sigma-exchange-alerts">${issues.map(issue=>`<li>${esc(issue)}</li>`).join('')}</ul>`:'<p>Aucune incohérence détectée dans les données locales. Les ACL et l’accès réel restent à contrôler dans SIGMA - Consultations.</p>'}<p><strong>Historique des décisions</strong></p><ol>${historyHtml}</ol></details></div><div class="sigma-exchange-actions"><span class="pill ${closed||expired?'done':'wait'}">${esc(status)}</span><button type="button" class="row-button" data-sigma-share-focus="${Number(p.id)}">Voir le partage</button></div></article>`;
   }).join('')||'<p class="muted">Aucun destinataire ne correspond à la recherche.</p>';
 }
+// SIGMA V1.0.17 — suivi des demandes et échanges externes, par copie individuelle.
+// Les données sont lues dans le même document, sous les ACL du compte courant.
+let sigmaExternalLoadRevision = 0;
+async function sigmaLoadExternalWorkflow(docId){
+ const target=$('sigma-external-workflow'); if(!target)return;
+ const ticket=++sigmaExternalLoadRevision;
+ target.textContent='Chargement des validations et commentaires invités…';
+ try {
+  const [vr,er,cr]=await Promise.all([
+   grist.docApi.fetchTable('VALIDATIONS_EXTERNES',{keepEncoded:true}),
+   grist.docApi.fetchTable('EVENEMENTS_VALIDATION',{keepEncoded:true}),
+   grist.docApi.fetchTable('COMMENTAIRES_INVITES',{keepEncoded:true})
+  ]);
+  if(ticket!==sigmaExternalLoadRevision || Number(currentDoc()?.id)!==Number(docId))return;
+  const validations=rowsFrom(vr),events=rowsFrom(er),comments=rowsFrom(cr);
+  const copies=tab('CONSULTATIONS_INVITEES').filter(c=>{
+   const share=byId('PARTAGES_DOCUMENTS',Number(c.Partage_ID));
+   return share&&Number(share.Document)===Number(docId);
+  });
+  target.innerHTML=copies.map(c=>{
+   const related=validations.filter(v=>Number(v.Consultation)===Number(c.id)&&Number(v.Version_Numero)===Number(c.Version_Numero));
+   const request=related.sort((x,y)=>y.id-x.id)[0];
+   const ev=request?events.filter(e=>Number(e.Validation)===Number(request.id)).sort((x,y)=>Number(x.Date_Evenement)-Number(y.Date_Evenement)||x.id-y.id):[];
+   const decisions=ev.filter(e=>['Validé','Correction demandée'].includes(String(e.Type_Evenement)));
+   const status=!request?'Aucune demande':decisions.length>1?'Anomalie : décisions multiples':decisions.length?decisions[0].Type_Evenement:'En attente';
+   const messages=comments.filter(m=>Number(m.Consultation)===Number(c.id)).sort((x,y)=>Number(x.Date_Creation)-Number(y.Date_Creation)||x.id-y.id);
+   const active=c.Statut==='Actif' && Number(c.Expiration)+86400>Date.now()/1000;
+   return `<article class="sigma-exchange-card"><div class="sigma-exchange-details"><strong>${esc(c.Email)}</strong><small>Copie #${c.id} · Version ${esc(c.Version_Numero)} · ${esc(c.Statut)} · Validation : ${esc(status)}</small>
+    <div class="sigma-external-thread"><h4>Commentaires confidentiels (${messages.length})</h4>${messages.map(m=>`<p><strong>${esc(m.Auteur_Email||'Auteur')}</strong> · ${prettyDateTime(m.Date_Creation)}<br>${esc(m.Contenu)}</p>`).join('')||'<p class="muted">Aucun commentaire.</p>'}</div>
+    <div><h4>Décisions (${ev.length})</h4>${ev.map(e=>`<p>${esc(e.Type_Evenement)} · ${prettyDateTime(e.Date_Evenement)} — ${esc(e.Message||'')}</p>`).join('')||'<p class="muted">Aucune décision.</p>'}</div>
+    ${active?`<form class="sigma-external-reply" data-consultation="${c.id}"><label>Répondre à cet invité<textarea name="message" maxlength="3000" required rows="2" placeholder="Réponse visible uniquement par cet invité"></textarea></label><button type="submit" class="row-button">Répondre</button></form>`:''}
+   </div><div class="sigma-exchange-actions">${active&&!request?`<button type="button" class="row-button" data-sigma-validation-create="${c.id}">Demander validation</button>`:''}</div></article>`;
+  }).join('')||'<p class="muted">Aucune copie de consultation pour ce compte rendu.</p>';
+ }catch(err){if(ticket===sigmaExternalLoadRevision){target.textContent='Accès aux validations ou commentaires refusé par Grist. Vérifiez les ACL du gestionnaire.';console.error('SIGMA suivi externe',err);}}
+}
+document.addEventListener('click',async e=>{
+ const button=e.target.closest('[data-sigma-validation-create]');if(!button)return;
+ const id=Number(button.dataset.sigmaValidationCreate),copy=byId('CONSULTATIONS_INVITEES',id),doc=currentDoc();
+ if(!doc||!copy||copy.Statut!=='Actif'||Number(copy.Expiration)+86400<=Date.now()/1000)return notify('Copie inactive ou expirée.');
+ const share=byId('PARTAGES_DOCUMENTS',Number(copy.Partage_ID));
+ if(!share||Number(share.Document)!==Number(doc.id))return notify('Partage non associé à ce compte rendu.');
+ if(!confirm(`Demander à ${copy.Email} de valider la version ${copy.Version_Numero} ?`))return;
+ button.disabled=true;
+ try{
+  const requests=rowsFrom(await grist.docApi.fetchTable('VALIDATIONS_EXTERNES',{keepEncoded:true}));
+  if(requests.some(v=>Number(v.Consultation)===id&&Number(v.Version_Numero)===Number(copy.Version_Numero)))throw Error('Une demande existe déjà pour cette version.');
+  await grist.docApi.applyUserActions([['AddRecord','VALIDATIONS_EXTERNES',null,{Consultation:id,Version_Numero:Number(copy.Version_Numero),Statut:'En attente',Date_Demande:Math.floor(Date.now()/1000)}]]);
+  notify('Demande de validation créée.',true);await sigmaLoadExternalWorkflow(doc.id);
+ }catch(err){notify('Demande non enregistrée : '+err.message);}finally{button.disabled=false;}
+});
+document.addEventListener('submit',async e=>{
+ const form=e.target.closest('form.sigma-external-reply');if(!form)return;e.preventDefault();
+ const id=Number(form.dataset.consultation),copy=byId('CONSULTATIONS_INVITEES',id),doc=currentDoc();
+ const message=String(new FormData(form).get('message')||'').trim();
+ if(!doc||!copy||copy.Statut!=='Actif'||!message||message.length>3000)return;
+ const share=byId('PARTAGES_DOCUMENTS',Number(copy.Partage_ID));
+ if(!share||Number(share.Document)!==Number(doc.id))return;
+ const button=form.querySelector('button');button.disabled=true;
+ try{
+  await grist.docApi.applyUserActions([['AddRecord','COMMENTAIRES_INVITES',null,{Consultation:id,Contenu:message}]]);
+  notify('Réponse enregistrée.',true);await sigmaLoadExternalWorkflow(doc.id);
+ }catch(err){notify('Réponse non enregistrée : '+err.message);}finally{button.disabled=false;}
+});
 $('sigma-exchange-filter').addEventListener('input',()=>{
   const doc=currentDoc();if(doc)renderInvitedExchangeOverview(doc,documentShares(doc.id));
 });

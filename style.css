@@ -251,3 +251,6 @@
 #document-tab-tracking .sigma-exchanges{display:block}
 #document-tab-tracking .sigma-tracking-list > summary{font-weight:700}
 .sigma-document-tabs{flex-wrap:wrap}
+
+/* SIGMA V1.0.17 : échanges externes séparés par consultation */
+.sigma-external-thread{margin:12px 0;padding:10px 12px;border-left:3px solid #8ca6ce;background:var(--surface,#f5f7fb);border-radius:6px}.sigma-external-thread p{overflow-wrap:anywhere}.sigma-external-reply{margin-top:12px;display:grid;gap:8px}.sigma-external-reply textarea{display:block;width:100%;box-sizing:border-box;min-height:70px;margin-top:6px}.sigma-exchange-card{overflow-wrap:anywhere}
