@@ -1,4 +1,4 @@
-/* SIGMA V1.0.16.2 TEST — préparation automatique des courriels ; ACL Grist obligatoires. */
+/* SIGMA V1.0.16.9 TEST — préparation automatique des courriels ; ACL Grist obligatoires. */
 'use strict';
 const TABLES = ['SIGNALEMENTS','ACADEMIES','STATUTS','MOTIFS','SIGNALEMENT_MOTIFS','UTILISATEURS','HABILITATIONS','PERSONNES','SIGNALEMENT_PERSONNES','ACTIONS','HISTORIQUE_STATUTS','HISTORIQUE_ARCHIVAGE','RENDEZ_VOUS','PARTICIPANTS_RDV','DOCUMENTS','VERSIONS_DOCUMENTS','COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS','HISTORIQUE_PARTAGES','CONSULTATIONS_INVITEES','MODELES_COURRIELS'];
 const state = {data:{},view:'dashboard',busy:false,dossierSuivi:null,agendaDate:new Date(),agendaMode:'semaine',rdvDossier:null,archiveYear:null,returnFromDossier:'dossiers'};
@@ -662,8 +662,40 @@ function renderDocumentCollaboration(doc){
     ?`<details class="sigma-fold sigma-share-closed"><summary>Historique des partages annulés ou refusés (${closedShares.length})</summary><div class="sigma-fold-body">${closedShares.map(renderShareCard).join('')}</div></details>`
     :'';
   $('document-shares-list').innerHTML=`<h4>Destinataires et demandes en cours (${currentShares.length})</h4>${activeHtml}${closedHtml}`;
+  renderInvitedExchangeOverview(doc, shares);
   renderMailChoices(doc);
 }
+// V1.0.16.9 TEST — suivi des échanges sans accès interdocuments.
+// Ce panneau n'affiche AUCUN commentaire invité : ils restent dans SIGMA - Consultations.
+function renderInvitedExchangeOverview(doc, shares){
+  const target=$('sigma-invited-exchanges');
+  if(!target)return;
+  const query=($('sigma-exchange-filter')?.value||'').trim().toLocaleLowerCase('fr');
+  const list=shares.filter(p=>[p.Destinataire,p.Email,p.Statut].some(v=>String(v||'').toLocaleLowerCase('fr').includes(query)));
+  const now=Date.now()/1000;
+  const active=shares.filter(p=>!['Annulé','Refusé'].includes(p.Statut)).length;
+  $('sigma-exchange-summary').textContent=`${shares.length} demande(s) · ${active} non clôturée(s) · ${list.length} affichée(s)`;
+  target.innerHTML=list.map(p=>{
+    const copy=tab('CONSULTATIONS_INVITEES').find(c=>Number(c.Partage_ID)===Number(p.id));
+    const expired=Number(p.Expiration)>0&&Number(p.Expiration)+86400<=now;
+    const revoked=copy?.Statut==='Révoqué'||['Annulé','Refusé'].includes(p.Statut);
+    const status=revoked?'Révoqué / clôturé':expired?'Échéance dépassée':copy?.Statut==='Actif'?'Actif dans le miroir local':copy?'Copie '+String(copy.Statut||'préparée'):'Copie non renseignée';
+    const version=byId('VERSIONS_DOCUMENTS',p.Version);
+    return `<article class="sigma-exchange-card"><div><strong>${esc(p.Destinataire||'Destinataire non renseigné')}</strong><small>${esc(p.Email||'')} · ${esc(p.Droit||'')} · ${version?'Version '+esc(version.Numero_Version):'Version inconnue'}</small><small>Partage #${Number(p.id)} · ${esc(status)} · échéance ${dateText(p.Expiration)}</small></div><div class="sigma-exchange-actions"><span class="pill ${revoked||expired?'done':'wait'}">${esc(status)}</span><button type="button" class="row-button" data-sigma-share-focus="${Number(p.id)}">Voir le partage</button></div></article>`;
+  }).join('')||'<p class="muted">Aucun destinataire ne correspond à la recherche.</p>';
+}
+$('sigma-exchange-filter').addEventListener('input',()=>{
+  const doc=currentDoc();if(doc)renderInvitedExchangeOverview(doc,documentShares(doc.id));
+});
+document.addEventListener('click',e=>{
+  const b=e.target.closest('[data-sigma-share-focus]');if(!b)return;
+  const id=Number(b.dataset.sigmaShareFocus);
+  const list=$('document-shares-list');
+  // Pas de requête vers un autre document ni de divulgation de commentaires.
+  const target=list.querySelector(`[data-share-cancel="${id}"], [data-share-review="${id}"], [data-share-snapshot="${id}"]`);
+  if(target){target.closest('.collab-item')?.scrollIntoView({behavior:'smooth',block:'center'});}
+  else {list.scrollIntoView({behavior:'smooth',block:'start'});notify('Retrouve ce destinataire dans la liste des partages.');}
+});
 // V1.0.5 : aperçu et commentaires strictement liés à la version choisie.
 function renderReadVersion(doc){
   const version=byId('VERSIONS_DOCUMENTS',Number($('comment-version').value));

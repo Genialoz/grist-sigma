@@ -204,3 +204,14 @@
 .sigma-new-share > summary {cursor:pointer;font-weight:650}
 .sigma-new-share .sigma-fold-body {padding-top:14px}
 @media (prefers-color-scheme: dark) {.sigma-share-security {background:#312718;border-color:#846332;color:#ffe3a6}}
+
+/* V1.0.16.9 TEST : synthèse des destinataires, sans accès aux commentaires externes. */
+.sigma-exchanges{margin:18px 0 22px;padding:18px;border:1px solid #d8e2ed;border-radius:12px;background:#f8fbfe}
+.sigma-exchanges h4{margin:0 0 8px}
+.sigma-exchange-search{display:block;margin:12px 0;max-width:440px;font-weight:600}
+.sigma-exchange-search input{display:block;width:100%;margin-top:6px;padding:9px;border:1px solid #b9cbdc;border-radius:8px}
+.sigma-exchange-card{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-top:1px solid #dce6f0}
+.sigma-exchange-card strong,.sigma-exchange-card small{display:block;overflow-wrap:anywhere}
+.sigma-exchange-card small{margin-top:5px;color:#4e6478}
+.sigma-exchange-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+@media(max-width:650px){.sigma-exchange-card{align-items:flex-start;flex-direction:column}}
