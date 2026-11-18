@@ -1,4 +1,4 @@
-/* SIGMA V1.0.16.9 TEST — préparation automatique des courriels ; ACL Grist obligatoires. */
+/* SIGMA V1.0.16.10 TEST — préparation automatique des courriels ; ACL Grist obligatoires. */
 'use strict';
 const TABLES = ['SIGNALEMENTS','ACADEMIES','STATUTS','MOTIFS','SIGNALEMENT_MOTIFS','UTILISATEURS','HABILITATIONS','PERSONNES','SIGNALEMENT_PERSONNES','ACTIONS','HISTORIQUE_STATUTS','HISTORIQUE_ARCHIVAGE','RENDEZ_VOUS','PARTICIPANTS_RDV','DOCUMENTS','VERSIONS_DOCUMENTS','COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS','HISTORIQUE_PARTAGES','CONSULTATIONS_INVITEES','MODELES_COURRIELS'];
 const state = {data:{},view:'dashboard',busy:false,dossierSuivi:null,agendaDate:new Date(),agendaMode:'semaine',rdvDossier:null,archiveYear:null,returnFromDossier:'dossiers'};
@@ -858,7 +858,7 @@ function renderMailChoices(doc){
   const previousShare=$('mail-share').value,previousTemplate=$('mail-template').value;
   const eligible=documentShares(doc.id).filter(p=>{
     const version=byId('VERSIONS_DOCUMENTS',p.Version);
-    return doc.Statut==='Validé' && p.Statut==='Vérifié' && version?.Statut==='Validé' && Number(version.Document)===Number(doc.id) && Number(p.Expiration)>0 && Number(p.Expiration)+86400>Date.now()/1000;
+    return p.Statut==='Vérifié' && version?.Statut==='Validé' && Number(version.Document)===Number(doc.id) && Number(p.Expiration)>0 && Number(p.Expiration)+86400>Date.now()/1000;
   });
   $('mail-share').innerHTML='<option value="">Sélectionner une demande vérifiée…</option>'+eligible.map(p=>`<option value="${p.id}">${esc(p.Destinataire)} — ${esc(p.Email)} (version ${esc(byId('VERSIONS_DOCUMENTS',p.Version)?.Numero_Version)})</option>`).join('');
   $('mail-template').innerHTML='<option value="">Sélectionner un modèle…</option>'+mailModels().filter(m=>Number(m.Actif)===1).map(m=>`<option value="${m.id}">${esc(m.Libelle)}</option>`).join('');
@@ -871,11 +871,24 @@ function renderMailChoices(doc){
     if(!mailHasChanges())prepareMail({silent:true});
     else {mailButtons();mailInfo('Message personnalisé conservé. Actualiser demandera confirmation avant remplacement.');}
   }else if(!mailHasChanges())clearMailDraft();
+  if(!eligible.length){
+    const shares=documentShares(doc.id);
+    const verified=shares.filter(p=>p.Statut==='Vérifié');
+    let reason='Aucune demande vérifiée pour ce compte rendu.';
+    if(verified.length){
+      const expired=verified.filter(p=>!(Number(p.Expiration)>0 && Number(p.Expiration)+86400>Date.now()/1000)).length;
+      const invalidVersion=verified.filter(p=>{const v=byId('VERSIONS_DOCUMENTS',p.Version);return !v||v.Statut!=='Validé'||Number(v.Document)!==Number(doc.id);}).length;
+      reason=`${verified.length} demande(s) vérifiée(s), aucune éligible : ${expired} expirée(s), ${invalidVersion} avec version non validée ou introuvable. Vérifie les échéances et versions.`;
+    }
+    if(!mailHasChanges())mailInfo(reason);
+  }else if(doc.Statut!=='Validé' && !mailHasChanges()){
+    mailInfo(`La version courante du compte rendu est « ${doc.Statut} ». Les demandes vérifiées restent utilisables pour leur version validée d'origine.`);
+  }
 }
 function mailContext(){
   const doc=currentDoc(),share=byId('PARTAGES_DOCUMENTS',Number($('mail-share').value));
   const model=byId('MODELES_COURRIELS',Number($('mail-template').value));
-  if(!doc||doc.Statut!=='Validé'||!share||Number(share.Document)!==Number(doc.id)||share.Statut!=='Vérifié')throw new Error('Sélectionne une demande vérifiée correspondant au document.');
+  if(!doc||!share||Number(share.Document)!==Number(doc.id)||share.Statut!=='Vérifié')throw new Error('Sélectionne une demande vérifiée correspondant au document.');
   const version=byId('VERSIONS_DOCUMENTS',share.Version);
   if(!version||Number(version.Document)!==Number(doc.id)||version.Statut!=='Validé')throw new Error('La version associée n’est plus valide.');
   if(!Number(share.Expiration)||Number(share.Expiration)+86400<=Date.now()/1000)throw new Error('Cette demande a expiré.');
