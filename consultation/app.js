@@ -1,4 +1,4 @@
-/* SIGMA V1.0.16.29 TEST — interface de décision préparée, écritures verrouillées.
+/* SIGMA V1.0.16.30 TEST — interface de décision préparée, écritures verrouillées.
    Les ACL Grist sont indispensables ; l'expiration JS ne sécurise pas l'API. */
 'use strict';
 (() => {
@@ -14,6 +14,7 @@
   let validationRevision = 0;
   let activeValidation = null;
   let decisionBusy = false;
+  let decisionRequestRevision = 0;
   // Verrou volontaire : ne pas passer à true avant tests ACL par API (A/B, usurpation, doublons).
   const DECISION_WRITES_ENABLED = false;
   const decisionForm = $('decision-form');
@@ -49,7 +50,25 @@
       decisionNotice.textContent = 'Motif obligatoire (1 à 3 000 caractères).'; return;
     }
     decisionBusy = true; setDecisionAvailability(false);
+    const requestRevision = ++decisionRequestRevision;
     try {
+      // Revérification avant écriture : utile pour l'ergonomie, mais PAS une garantie
+      // de sécurité ni d'unicité (les ACL et une opération atomique sont nécessaires).
+      const latestConsultations = rowsFrom(await grist.docApi.fetchTable('CONSULTATIONS_INVITEES', {keepEncoded: true}));
+      const latest = latestConsultations.find(r => Number(r.id) === Number(row.id));
+      const latestValidations = rowsFrom(await grist.docApi.fetchTable(VALIDATIONS_TABLE, {keepEncoded: true}));
+      const latestValidation = latestValidations.find(v => Number(v.id) === Number(activeValidation.id));
+      const latestEvents = rowsFrom(await grist.docApi.fetchTable(EVENTS_TABLE, {keepEncoded: true}));
+      if (requestRevision !== decisionRequestRevision || !latest || latest.Statut !== 'Actif' ||
+          !(dateSeconds(latest.Expiration) > Date.now()/1000) ||
+          Number(latest.Version_Numero) !== Number(row.Version_Numero) ||
+          !latestValidation || Number(latestValidation.Consultation) !== Number(row.id) ||
+          Number(latestValidation.Version_Numero) !== Number(row.Version_Numero) ||
+          String(latestValidation.Statut) !== 'En attente' ||
+          latestEvents.some(e => Number(e.Validation) === Number(latestValidation.id) &&
+            ['Validé', 'Correction demandée'].includes(String(e.Type_Evenement)))) {
+        throw Error('Demande périmée ou décision déjà présente');
+      }
       // Le widget ne transmet ni auteur ni horodatage : Grist les initialise.
       // Les ACL côté serveur doivent néanmoins empêcher leur usurpation par API.
       await grist.docApi.applyUserActions([['AddRecord', EVENTS_TABLE, null, {
@@ -62,7 +81,7 @@
     } catch (err) {
       decisionNotice.textContent = 'Décision refusée par Grist. Vérifiez les droits de validation.';
       console.error('SIGMA décision refusée :', err);
-    } finally { decisionBusy = false; setDecisionAvailability(false); }
+    } finally { decisionBusy = false; if (DECISION_WRITES_ENABLED) await loadValidation(row.id); else setDecisionAvailability(false); }
   }
   $('validation-approve').addEventListener('click', () => void submitDecision('Validé'));
   decisionForm.addEventListener('submit', e => {
