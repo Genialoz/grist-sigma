@@ -1,4 +1,4 @@
-/* SIGMA V1.0.16.30 TEST — interface de décision préparée, écritures verrouillées.
+/* SIGMA V1.0.17 TEST — interface de décision préparée, écritures verrouillées.
    Les ACL Grist sont indispensables ; l'expiration JS ne sécurise pas l'API. */
 'use strict';
 (() => {
