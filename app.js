@@ -657,11 +657,11 @@ function renderDocumentCollaboration(doc){
   const currentShares=shares.filter(p=>!['Annulé','Refusé'].includes(p.Statut));
   const activeHtml=currentShares.length
     ?currentShares.map(renderShareCard).join('')
-    :'<p class="muted">Aucune demande en cours. Tu peux enregistrer un nouveau destinataire ci-dessous.</p>';
+    :'<p class="muted">Aucune demande en cours. Utilise le formulaire « Préparer une nouvelle diffusion » situé plus haut.</p>';
   const closedHtml=closedShares.length
     ?`<details class="sigma-fold sigma-share-closed"><summary>Historique des partages annulés ou refusés (${closedShares.length})</summary><div class="sigma-fold-body">${closedShares.map(renderShareCard).join('')}</div></details>`
     :'';
-  $('document-shares-list').innerHTML=`<h4>Destinataires et demandes en cours (${currentShares.length})</h4>${activeHtml}${closedHtml}`;
+  $('document-shares-list').innerHTML=`<h4>4. Suivi des destinataires et demandes en cours (${currentShares.length})</h4>${activeHtml}${closedHtml}`;
   renderInvitedExchangeOverview(doc, shares);
   renderMailChoices(doc);
 }
