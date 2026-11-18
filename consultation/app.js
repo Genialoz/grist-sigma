@@ -1,4 +1,4 @@
-/* SIGMA V1.0.18 TEST — interface de décision préparée, écritures verrouillées.
+/* SIGMA V1.0.19 TEST — décisions append-only (activation sous ACL sécurisées).
    Les ACL Grist sont indispensables ; l'expiration JS ne sécurise pas l'API. */
 'use strict';
 (() => {
@@ -15,7 +15,7 @@
   let activeValidation = null;
   let decisionBusy = false;
   let decisionRequestRevision = 0;
-  // Verrou volontaire : ne pas passer à true avant tests ACL par API (A/B, usurpation, doublons).
+  // ATTENTION : ne pas utiliser avec de vrais invités avant tests ACL/API A/B et doublons.
   const DECISION_WRITES_ENABLED = true;
   const decisionForm = $('decision-form');
   const decisionMessage = $('decision-message');
@@ -71,8 +71,9 @@
       }
       // Le widget ne transmet ni auteur ni horodatage : Grist les initialise.
       // Les ACL côté serveur doivent néanmoins empêcher leur usurpation par API.
+      // Historique append-only : l'invité ne peut pas modifier VALIDATIONS_EXTERNES.
+      // La règle ACL C sur EVENEMENTS_VALIDATION doit être testée côté Grist.
       await grist.docApi.applyUserActions([
-        ['UpdateRecord', VALIDATIONS_TABLE, Number(activeValidation.id), {Statut: type}],
         ['AddRecord', EVENTS_TABLE, null, {
           Validation: Number(activeValidation.id), Type_Evenement: type,
           Version_Numero: Number(activeValidation.Version_Numero),
