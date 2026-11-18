@@ -1,4 +1,4 @@
-/* SIGMA V1.0.16.20 TEST — lecture seule, aucune autorisation créée par le widget.
+/* SIGMA V1.0.16.28 TEST — interface de décision préparée, écritures verrouillées.
    Les ACL Grist sont indispensables ; l'expiration JS ne sécurise pas l'API. */
 'use strict';
 (() => {
@@ -12,6 +12,63 @@
   const VALIDATIONS_TABLE = 'VALIDATIONS_EXTERNES';
   const EVENTS_TABLE = 'EVENEMENTS_VALIDATION';
   let validationRevision = 0;
+  let activeValidation = null;
+  let decisionBusy = false;
+  // Verrou volontaire : ne pas passer à true avant tests ACL par API (A/B, usurpation, doublons).
+  const DECISION_WRITES_ENABLED = false;
+  const decisionForm = $('decision-form');
+  const decisionMessage = $('decision-message');
+  const decisionNotice = $('decision-notice');
+  function setDecisionAvailability(available) {
+    $('validation-approve').disabled = !available || decisionBusy;
+    $('validation-request-correction').disabled = !available || decisionBusy;
+  }
+  function resetDecision() {
+    activeValidation = null;
+    decisionForm.classList.add('hidden');
+    decisionMessage.value = '';
+    decisionNotice.textContent = '';
+    setDecisionAvailability(false);
+  }
+  function showDecisionForm() {
+    if (!DECISION_WRITES_ENABLED || !activeValidation) return;
+    decisionForm.classList.remove('hidden');
+    decisionMessage.focus();
+  }
+  $('validation-request-correction').addEventListener('click', showDecisionForm);
+  $('decision-cancel').addEventListener('click', () => decisionForm.classList.add('hidden'));
+  async function submitDecision(type, message = '') {
+    if (!DECISION_WRITES_ENABLED || decisionBusy || !activeValidation) return;
+    const row = visibleRows.find(r => Number(r.id) === Number(selectedId));
+    if (!row || row.Statut !== 'Actif' || !(dateSeconds(row.Expiration) > Date.now()/1000) ||
+        Number(row.Version_Numero) !== Number(activeValidation.Version_Numero) ||
+        Number(row.id) !== Number(activeValidation.Consultation)) {
+      decisionNotice.textContent = 'Consultation ou version non autorisée.'; return;
+    }
+    if (type === 'Correction demandée' && (!message.trim() || message.trim().length > 3000)) {
+      decisionNotice.textContent = 'Motif obligatoire (1 à 3 000 caractères).'; return;
+    }
+    decisionBusy = true; setDecisionAvailability(false);
+    try {
+      // Le widget ne transmet ni auteur ni horodatage : Grist les initialise.
+      // Les ACL côté serveur doivent néanmoins empêcher leur usurpation par API.
+      await grist.docApi.applyUserActions([['AddRecord', EVENTS_TABLE, null, {
+        Validation: Number(activeValidation.id), Type_Evenement: type,
+        Message: type === 'Correction demandée' ? message.trim() : ''
+      }]]);
+      decisionForm.classList.add('hidden');
+      decisionNotice.textContent = 'Décision transmise.';
+      await loadValidation(row.id);
+    } catch (err) {
+      decisionNotice.textContent = 'Décision refusée par Grist. Vérifiez les droits de validation.';
+      console.error('SIGMA décision refusée :', err);
+    } finally { decisionBusy = false; setDecisionAvailability(false); }
+  }
+  $('validation-approve').addEventListener('click', () => void submitDecision('Validé'));
+  decisionForm.addEventListener('submit', e => {
+    e.preventDefault();
+    void submitDecision('Correction demandée', decisionMessage.value);
+  });
   const commentsList = $('comments-list');
   const commentsNotice = $('comments-notice');
   const commentsForm = $('comment-form');
@@ -121,6 +178,7 @@
     $('content').textContent = '';
     clearComments();
     $('validation-panel').classList.add('hidden');
+    resetDecision();
     ++validationRevision;
     status(message, 'error');
   }
@@ -163,6 +221,7 @@
   // tant que les ACL d'écriture et d'authentification n'ont pas été éprouvées.
   async function loadValidation(consultationId) {
     const ticket = ++validationRevision;
+    resetDecision();
     const state = $('validation-state');
     const history = $('validation-history');
     state.textContent = 'Vérification de la demande de validation…';
@@ -184,6 +243,10 @@
         'Cloture':'Demande clôturée', 'Clôturé':'Demande clôturée'};
       state.textContent = statuses[String(validation.Statut || '')] ||
         ('État de la demande : ' + String(validation.Statut || 'Non renseigné'));
+      const eligible = String(validation.Statut || '') === 'En attente' &&
+        row?.Statut === 'Actif' && dateSeconds(row.Expiration) > Date.now()/1000;
+      if (eligible) activeValidation = validation;
+      setDecisionAvailability(Boolean(DECISION_WRITES_ENABLED && eligible));
       if (validation.Date_Decision) {
         const p = document.createElement('p');
         p.textContent = 'Décision enregistrée le ' + safeDate(validation.Date_Decision);

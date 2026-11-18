@@ -28,8 +28,14 @@
         <p id="validation-description">Ce compte rendu est transmis pour consultation. Le suivi des demandes de validation est distinct des commentaires.</p>
         <div id="validation-state" class="validation-state">Aucune demande de validation active pour cette copie.</div>
         <div id="validation-history" class="validation-history" aria-label="Historique de validation"></div>
-        <div class="validation-actions"><button type="button" disabled title="En attente des contrôles ACL">Valider le compte rendu</button><button type="button" disabled title="En attente des contrôles ACL">Demander une correction</button></div>
-        <p class="validation-warning">Décisions désactivées en TEST tant que les contrôles ACL et les champs d’audit ne sont pas sécurisés. Ces boutons n’enregistrent aucune décision.</p>
+        <div class="validation-actions"><button id="validation-approve" type="button" disabled>Valider le compte rendu</button><button id="validation-request-correction" type="button" disabled>Demander une correction</button></div>
+        <form id="decision-form" class="hidden" aria-label="Demande de correction">
+          <label for="decision-message">Corrections demandées (obligatoire)</label>
+          <textarea id="decision-message" maxlength="3000" rows="4" required placeholder="Précisez les corrections attendues…"></textarea>
+          <div class="validation-actions"><button type="submit">Envoyer la demande</button><button id="decision-cancel" type="button">Annuler</button></div>
+        </form>
+        <p id="decision-notice" role="status" aria-live="polite"></p>
+        <p class="validation-warning">Décisions verrouillées en TEST : les ACL de création, les contrôles anti-usurpation et anti-doublon doivent être validés avant activation.</p>
       </section>
       <aside id="comments-panel" class="comments-panel hidden" aria-label="Commentaires du compte rendu">
         <div class="comments-header"><strong>Commentaires</strong><span class="coming">Version partagée</span></div>

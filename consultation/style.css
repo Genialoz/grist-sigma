@@ -43,3 +43,9 @@
 .validation-history p{margin:5px 0}.validation-event{padding:10px 12px;background:#fff;border:1px solid #e2e8f2;border-radius:8px;overflow-wrap:anywhere}
 .validation-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
 .validation-actions button{border:1px solid #c7d1df;background:#e8edf4;color:#62718a;padding:11px 14px;border-radius:9px;font:inherit;font-weight:650;cursor:not-allowed}
+
+/* V1.0.16.28 : saisie de correction, sans activation des écritures */
+#decision-form { margin-top: 1rem; }
+#decision-form label { display:block; font-weight:650; margin-bottom:.4rem; }
+#decision-message { width:100%; box-sizing:border-box; min-height:6rem; }
+#decision-notice { margin:.5rem 0; }
