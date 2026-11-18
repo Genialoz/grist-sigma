@@ -1,4 +1,4 @@
-/* SIGMA V1.0.16.18 TEST — lecture seule, aucune autorisation créée par le widget.
+/* SIGMA V1.0.16.20 TEST — lecture seule, aucune autorisation créée par le widget.
    Les ACL Grist sont indispensables ; l'expiration JS ne sécurise pas l'API. */
 'use strict';
 (() => {
@@ -9,6 +9,9 @@
   let visibleRows = [];
   let commentsRevision = 0;
   const COMMENTS_TABLE = 'COMMENTAIRES_INVITES';
+  const VALIDATIONS_TABLE = 'VALIDATIONS_EXTERNES';
+  const EVENTS_TABLE = 'EVENEMENTS_VALIDATION';
+  let validationRevision = 0;
   const commentsList = $('comments-list');
   const commentsNotice = $('comments-notice');
   const commentsForm = $('comment-form');
@@ -118,6 +121,7 @@
     $('content').textContent = '';
     clearComments();
     $('validation-panel').classList.add('hidden');
+    ++validationRevision;
     status(message, 'error');
   }
   function rowsFrom(data) {
@@ -155,6 +159,61 @@
     const title = String(row.Titre || 'Compte rendu').trim();
     return title.slice(0, 130) + ' · version ' + String(row.Version_Numero || '—');
   }
+  // Lecture seule : les tables de validation restent interdites aux non-propriétaires
+  // tant que les ACL d'écriture et d'authentification n'ont pas été éprouvées.
+  async function loadValidation(consultationId) {
+    const ticket = ++validationRevision;
+    const state = $('validation-state');
+    const history = $('validation-history');
+    state.textContent = 'Vérification de la demande de validation…';
+    history.replaceChildren();
+    try {
+      const data = await grist.docApi.fetchTable(VALIDATIONS_TABLE, {keepEncoded: true});
+      if (ticket !== validationRevision || String(selectedId) !== String(consultationId)) return;
+      const row = visibleRows.find(r => Number(r.id) === Number(consultationId));
+      const versions = rowsFrom(data).filter(v => Number(v.Consultation) === Number(consultationId) &&
+        Number(v.Version_Numero) === Number(row?.Version_Numero));
+      versions.sort((a,b) => Number(b.id) - Number(a.id));
+      const validation = versions[0];
+      if (!validation) {
+        state.textContent = 'Aucune demande de validation pour cette version.';
+        return;
+      }
+      const statuses = {'En attente':'En attente de décision', 'Valide':'Compte rendu validé',
+        'Validé':'Compte rendu validé', 'Correction demandée':'Correction demandée',
+        'Cloture':'Demande clôturée', 'Clôturé':'Demande clôturée'};
+      state.textContent = statuses[String(validation.Statut || '')] ||
+        ('État de la demande : ' + String(validation.Statut || 'Non renseigné'));
+      if (validation.Date_Decision) {
+        const p = document.createElement('p');
+        p.textContent = 'Décision enregistrée le ' + safeDate(validation.Date_Decision);
+        history.appendChild(p);
+      }
+      try {
+        const events = rowsFrom(await grist.docApi.fetchTable(EVENTS_TABLE, {keepEncoded: true}))
+          .filter(e => Number(e.Validation) === Number(validation.id))
+          .sort((a,b) => dateSeconds(a.Date_Evenement)-dateSeconds(b.Date_Evenement) || Number(a.id)-Number(b.id));
+        if (ticket !== validationRevision || String(selectedId) !== String(consultationId)) return;
+        for (const e of events) {
+          const item = document.createElement('article');
+          item.className = 'validation-event';
+          const heading = document.createElement('strong');
+          heading.textContent = String(e.Type_Evenement || 'Événement') + ' · ' + safeDate(e.Date_Evenement);
+          const message = document.createElement('p');
+          message.textContent = String(e.Message || '');
+          item.append(heading, message);
+          history.appendChild(item);
+        }
+      } catch (err) {
+        // Une table d'événements non lisible ne doit pas révéler l'existence de lignes.
+        console.info('Historique des validations non accessible avec ces droits.');
+      }
+    } catch (err) {
+      if (ticket !== validationRevision || String(selectedId) !== String(consultationId)) return;
+      state.textContent = 'État de validation indisponible avec vos droits actuels.';
+      // Ne pas proposer de décision si la table n'est pas accessible.
+    }
+  }
   function drawSelected() {
     const r = visibleRows.find(row => String(row.id) === String(selectedId));
     if (!r) { hide('Aucune consultation sélectionnée.'); return; }
@@ -163,9 +222,8 @@
     $('expiration').textContent = 'Échéance indicative : ' + new Date(dateSeconds(r.Expiration) * 1000).toLocaleDateString('fr-FR', {timeZone: 'UTC'});
     $('content').textContent = String(r.Contenu || 'Aucun contenu.');
     $('viewer').classList.remove('hidden');
-    // Le panneau est informatif tant que la table dédiée et ses ACL ne sont pas validées.
-    // Ne jamais déduire une validation d'un commentaire ordinaire.
     $('validation-panel').classList.remove('hidden');
+    void loadValidation(r.id);
     commentsForm.classList.add('hidden');
     void loadComments(r.id);
     status(visibleRows.length > 1 ? `${visibleRows.length} comptes rendus disponibles pour ce compte. Choisissez celui à consulter.` : 'Copie fictive en lecture seule. Aucun droit externe n’est activé par ce widget.', 'ok');
