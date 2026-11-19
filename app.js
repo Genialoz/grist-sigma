@@ -699,10 +699,14 @@ async function saveDocument(validate=false){
     }else{
       next=Math.max(0,...docVers.map(v=>Number(v.Numero_Version)||0))+1;
       operation='création VERSIONS_DOCUMENTS (+C)';
-      await grist.docApi.applyUserActions([['AddRecord','VERSIONS_DOCUMENTS',null,{Document:Number(docId),Numero_Version:next,Contenu:content,Statut:status,Date_Version:now,Auteur:author}]]);
+      const versionCreationResult=await grist.docApi.applyUserActions([['AddRecord','VERSIONS_DOCUMENTS',null,{Document:Number(docId),Numero_Version:next,Contenu:content,Statut:status,Date_Version:now,Auteur:author}]]);
+      // L'identifiant est fourni par Grist dans retValues ; ne jamais recréer
+      // automatiquement la version si une ACL masque ensuite sa relecture.
+      const versionAction=Array.isArray(versionCreationResult)?versionCreationResult[0]:versionCreationResult;
+      const createdVersionId=versionAction && Array.isArray(versionAction.retValues)?Number(versionAction.retValues[0]):null;
       operation='vérification de la version créée (lecture +R)';
       const afterCreate=rowsFrom(await grist.docApi.fetchTable('VERSIONS_DOCUMENTS'));
-      if(!afterCreate.some(v=>Number(v.Document)===Number(docId)&&Number(v.Numero_Version)===next&&v.Contenu===content&&v.Statut===status))throw new Error('La création a été envoyée mais la version n’est pas visible en lecture. Ne pas réessayer sans contrôler la table avec le propriétaire.');
+      if(!afterCreate.some(v=>Number(v.Document)===Number(docId)&&Number(v.Numero_Version)===next&&v.Contenu===content&&v.Statut===status))throw new Error('Version probablement créée'+(Number.isSafeInteger(createdVersionId)&&createdVersionId>0?' (ID Grist '+createdVersionId+')':'')+' mais masquée par les ACL +R. Ne pas réessayer : vérifier VERSIONS_DOCUMENTS avec le propriétaire.');
     }
     operation='mise à jour DOCUMENTS (+U) — version déjà créée';
     await grist.docApi.applyUserActions([['UpdateRecord','DOCUMENTS',Number(docId),{Signalement:dossier,Titre:titre,Type_Document:type,Statut:status,Version_Courante:next,Date_Validation:validate?now:null}]]);
