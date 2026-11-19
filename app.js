@@ -203,7 +203,7 @@ function sigmaLoadArchiveFilters(){
  select.disabled=$('filter-archive').value!=='archives';
  if(select.disabled)select.value='';
 }
-async function refresh(){try{notify('');for(const name of TABLES)state.data[name]=rowsFrom(await grist.docApi.fetchTable(name));loadSelects();sigmaLoadArchiveFilters();fillRdvSelects();fillDocumentSelects();render();}catch(e){notify('Chargement impossible : '+e.message+'. Vérifiez les tables et les autorisations du widget.');}}
+async function refresh(){try{notify('');for(const name of TABLES){try{state.data[name]=rowsFrom(await grist.docApi.fetchTable(name));}catch(err){throw new Error('Lecture de la table '+name+' refusée : '+(err?.message||String(err)));}}loadSelects();sigmaLoadArchiveFilters();fillRdvSelects();fillDocumentSelects();render();}catch(e){notify('Chargement impossible : '+e.message+'. Vérifiez les tables et les autorisations du widget.');}}
 function sigmaFillPrincipal(rec){
  const select=$('responsable-principal');
  const current=Number(rec?.Responsable_Principal)||0;
@@ -589,17 +589,11 @@ async function saveDocument(validate=false){
   state.busy=true;$('document-save').disabled=true;$('document-validate').disabled=true;
   try{
     let docId=doc?.id;
-    let createdHere=false;
     if(!docId){
-      // Évite une nouvelle création après une tentative partiellement enregistrée.
-      const before=rowsFrom(await grist.docApi.fetchTable('DOCUMENTS'));
-      const duplicate=before.find(d=>Number(d.Signalement)===dossier&&d.Titre===titre&&d.Statut==='Brouillon');
-      if(duplicate)throw new Error(`Un brouillon portant ce titre existe déjà (ID ${duplicate.id}). Ouvre-le et vérifie ses versions avant de réessayer.`);
       await grist.docApi.applyUserActions([['AddRecord','DOCUMENTS',null,{Signalement:dossier,Titre:titre,Type_Document:type,Statut:'Brouillon',Date_Creation:now,Date_Validation:null,Version_Courante:0}]]);
       const fresh=rowsFrom(await grist.docApi.fetchTable('DOCUMENTS'));
       docId=fresh.filter(d=>Number(d.Signalement)===dossier&&d.Titre===titre&&Number(d.Date_Creation)===now).sort((a,b)=>b.id-a.id)[0]?.id;
       if(!docId)throw new Error('Métadonnées enregistrées, mais identifiant introuvable. Vérifier DOCUMENTS avant de recommencer.');
-      createdHere=true;
     }
     // Ne jamais écraser une version : chaque enregistrement crée une nouvelle ligne.
     const freshVers=rowsFrom(await grist.docApi.fetchTable('VERSIONS_DOCUMENTS'));
@@ -611,7 +605,7 @@ async function saveDocument(validate=false){
     const verify=rowsFrom(await grist.docApi.fetchTable('VERSIONS_DOCUMENTS'));
     if(!verify.some(v=>Number(v.Document)===Number(docId)&&Number(v.Numero_Version)===next&&v.Contenu===content&&v.Statut===status))throw new Error('Version non retrouvée après écriture ; contrôle manuel nécessaire.');
     closeDocument();await refresh();notify(`Document ${status.toLowerCase()} — version ${next} enregistrée et vérifiée.`,true);
-  }catch(e){notify('Enregistrement impossible : '+e.message+(typeof createdHere!=='undefined'&&createdHere?' Le compte rendu '+docId+' a été créé : vérifie ses versions avant toute nouvelle tentative.':'')+' Vérifie DOCUMENTS et VERSIONS_DOCUMENTS.');}
+  }catch(e){notify('Erreur ou écriture partielle du compte rendu : '+e.message+' Vérifie DOCUMENTS et VERSIONS_DOCUMENTS avant toute nouvelle tentative.');}
   finally{state.busy=false;$('document-save').disabled=false;$('document-validate').disabled=false;}
 }
 async function startRevision(){
