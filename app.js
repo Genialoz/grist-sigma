@@ -220,20 +220,34 @@ function sigmaUpdatePeopleAvailability(){
  const form=$('existing-person-form');if(form){for(const control of form.querySelectorAll('input,select,button'))control.disabled=!available;}
  const tbody=$('suivi-personnes');if(tbody&&!available)tbody.innerHTML='<tr><td colspan="4">Personnes non chargées : accès Grist refusé. Aucune donnée personnelle affichée.</td></tr>';
 }
+// Diagnostic global des ACL : interroger toutes les tables sans contourner les refus.
+// Les tables sensibles restent interdites tant que leurs droits ne sont pas corrigés.
 async function refresh(){
+ const denied=[];
  try{
   notify('');state.unavailableTables.clear();
   for(const name of TABLES){
    try{state.data[name]=rowsFrom(await grist.docApi.fetchTable(name));}
    catch(err){
     state.data[name]=[];
-    if(OPTIONAL_PERSON_TABLES.has(name)||OPTIONAL_ACTION_TABLES.has(name)){state.unavailableTables.add(name);continue;}
-    throw new Error('Lecture de la table '+name+' refusée : '+(err?.message||String(err)));
+    state.unavailableTables.add(name);
+    denied.push({name,message:err?.message||String(err)});
    }
   }
+  const optional=new Set([...OPTIONAL_PERSON_TABLES,...OPTIONAL_ACTION_TABLES]);
+  const critical=denied.filter(x=>!optional.has(x.name));
+  if(critical.length){
+   // Fail closed : ne pas rendre un dossier partiellement chargé comme complet.
+   notify('Chargement incomplet : '+denied.length+' table(s) inaccessibles : '+denied.map(x=>x.name+' ('+x.message+')').join(' ; ')+'. Corrigez les ACL avant de poursuivre les écritures.');
+   sigmaUpdatePeopleAvailability();sigmaUpdateActionAvailability();
+   return;
+  }
   loadSelects();sigmaLoadArchiveFilters();fillRdvSelects();fillDocumentSelects();render();sigmaUpdatePeopleAvailability();sigmaUpdateActionAvailability();
-  if(state.unavailableTables.size)notify('Mode dégradé : lecture refusée pour '+[...state.unavailableTables].join(', ')+'. Les fonctions correspondantes sont désactivées ; les autres restent soumises aux ACL Grist.');
- }catch(e){sigmaUpdatePeopleAvailability();sigmaUpdateActionAvailability();notify('Chargement impossible : '+e.message+'. Vérifiez les tables et les autorisations du widget.');}
+  if(denied.length)notify('Mode dégradé : '+denied.map(x=>x.name).join(', ')+'. Fonctions concernées indisponibles.');
+ }catch(e){
+  sigmaUpdatePeopleAvailability();sigmaUpdateActionAvailability();
+  notify('Chargement impossible : '+(e?.message||String(e)));
+ }
 }
 function sigmaFillPrincipal(rec){
  const select=$('responsable-principal');
