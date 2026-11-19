@@ -1,4 +1,4 @@
-/* SIGMA V1.0.24 TEST — chargement dégradé PERSONNES et ACTIONS ; ACL Grist obligatoires. */
+/* SIGMA V1.0.25.2 TEST — récupération sécurisée des brouillons partiels ; ACL Grist obligatoires. */
 'use strict';
 const TABLES = ['SIGNALEMENTS','ACADEMIES','STATUTS','MOTIFS','SIGNALEMENT_MOTIFS','UTILISATEURS','HABILITATIONS','PERSONNES','SIGNALEMENT_PERSONNES','ACTIONS','HISTORIQUE_STATUTS','HISTORIQUE_ARCHIVAGE','RENDEZ_VOUS','PARTICIPANTS_RDV','DOCUMENTS','VERSIONS_DOCUMENTS','COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS','HISTORIQUE_PARTAGES','CONSULTATIONS_INVITEES','MODELES_COURRIELS'];
 const state = {unavailableTables:new Set(),data:{},view:'dashboard',busy:false,dossierSuivi:null,agendaDate:new Date(),agendaMode:'semaine',rdvDossier:null,archiveYear:null,returnFromDossier:'dossiers'};
@@ -644,12 +644,28 @@ async function saveDocument(validate=false){
   try{
     let docId=doc?.id;
     if(!docId){
-      operation='création DOCUMENTS (+C)';
-      await grist.docApi.applyUserActions([['AddRecord','DOCUMENTS',null,{Signalement:dossier,Titre:titre,Type_Document:type,Statut:'Brouillon',Date_Creation:now,Date_Validation:null,Version_Courante:0}]]);
-      operation='relecture DOCUMENTS';
-      const fresh=rowsFrom(await grist.docApi.fetchTable('DOCUMENTS'));
-      docId=fresh.filter(d=>Number(d.Signalement)===dossier&&d.Titre===titre&&Number(d.Date_Creation)===now).sort((a,b)=>b.id-a.id)[0]?.id;
-      if(!docId)throw new Error('Métadonnées enregistrées, mais identifiant introuvable. Vérifier DOCUMENTS avant de recommencer.');
+      operation='recherche de brouillon partiel';
+      const existingDocs=rowsFrom(await grist.docApi.fetchTable('DOCUMENTS'));
+      const existingVers=rowsFrom(await grist.docApi.fetchTable('VERSIONS_DOCUMENTS'));
+      const candidates=existingDocs.filter(d=>Number(d.Signalement)===dossier && d.Titre===titre && d.Statut==='Brouillon' && Number(d.Version_Courante||0)===0 && !existingVers.some(v=>Number(v.Document)===Number(d.id)));
+      if(candidates.length>1)throw new Error('Plusieurs brouillons incomplets portent ce titre pour ce dossier. Aucune écriture : sélectionner le document à reprendre dans Grist.');
+      if(candidates.length===1){
+        if(!confirm('Un brouillon sans version existe déjà pour ce dossier et ce titre (ID '+candidates[0].id+'). Compléter ce document existant sans en créer un autre ?'))return;
+        docId=Number(candidates[0].id);
+      }else{
+        operation='création DOCUMENTS (+C)';
+        const created=await grist.docApi.applyUserActions([['AddRecord','DOCUMENTS',null,{Signalement:dossier,Titre:titre,Type_Document:type,Statut:'Brouillon',Date_Creation:now,Date_Validation:null,Version_Courante:0}]]);
+        // Grist renvoie généralement [id] pour AddRecord. Ne pas présumer de la forme du résultat.
+        const result=Array.isArray(created)?created[0]:created;
+        const returnedId=typeof result==='number'?result:(result && typeof result==='object' ? (result.id??result.rowId) : null);
+        operation='relecture DOCUMENTS';
+        const fresh=rowsFrom(await grist.docApi.fetchTable('DOCUMENTS'));
+        const byReturnedId=Number.isInteger(Number(returnedId)) && Number(returnedId)>0 ? fresh.find(d=>Number(d.id)===Number(returnedId)) : null;
+        const matching=fresh.filter(d=>Number(d.Signalement)===dossier && d.Titre===titre && d.Statut==='Brouillon' && Number(d.Version_Courante||0)===0);
+        const selected=byReturnedId || (matching.length===1?matching[0]:null);
+        if(!selected)throw new Error('Document créé mais non identifiable de façon certaine (résultat Grist : '+JSON.stringify(created).slice(0,160)+'). Aucune nouvelle création automatique : contrôler DOCUMENTS.');
+        docId=Number(selected.id);
+      }
     }
     // Ne jamais écraser une version : chaque enregistrement crée une nouvelle ligne.
     operation='relecture VERSIONS_DOCUMENTS';
