@@ -649,6 +649,9 @@ async function saveDocument(validate=false){
       const existingVers=rowsFrom(await grist.docApi.fetchTable('VERSIONS_DOCUMENTS'));
       const candidates=existingDocs.filter(d=>Number(d.Signalement)===dossier && d.Titre===titre && d.Statut==='Brouillon' && Number(d.Version_Courante||0)===0 && !existingVers.some(v=>Number(v.Document)===Number(d.id)));
       if(candidates.length>1)throw new Error('Plusieurs brouillons incomplets portent ce titre pour ce dossier. Aucune écriture : sélectionner le document à reprendre dans Grist.');
+      // A previously created document may not be visible here if Grist ACLs
+      // filter rows. Do not interpret absence as proof of nonexistence.
+
       if(candidates.length===1){
         if(!confirm('Un brouillon sans version existe déjà pour ce dossier et ce titre (ID '+candidates[0].id+'). Compléter ce document existant sans en créer un autre ?'))return;
         docId=Number(candidates[0].id);
@@ -657,13 +660,22 @@ async function saveDocument(validate=false){
         const created=await grist.docApi.applyUserActions([['AddRecord','DOCUMENTS',null,{Signalement:dossier,Titre:titre,Type_Document:type,Statut:'Brouillon',Date_Creation:now,Date_Validation:null,Version_Courante:0}]]);
         // Grist renvoie généralement [id] pour AddRecord. Ne pas présumer de la forme du résultat.
         const result=Array.isArray(created)?created[0]:created;
-        const returnedId=typeof result==='number'?result:(result && typeof result==='object' ? (result.id??result.rowId) : null);
+        // Grist docApi.applyUserActions returns an action bundle such as
+        // {actionNum, actionHash, retValues: [3], isModification: true}.
+        // The AddRecord row id is the first return value, not result.id.
+        const returnedId=result && typeof result==='object' && Array.isArray(result.retValues)
+          ? result.retValues[0]
+          : (typeof result==='number'?result:(result && typeof result==='object' ? (result.id??result.rowId) : null));
         operation='relecture DOCUMENTS';
         const fresh=rowsFrom(await grist.docApi.fetchTable('DOCUMENTS'));
-        const byReturnedId=Number.isInteger(Number(returnedId)) && Number(returnedId)>0 ? fresh.find(d=>Number(d.id)===Number(returnedId)) : null;
+        const validId=Number.isSafeInteger(Number(returnedId)) && Number(returnedId)>0;
+        const byReturnedId=validId ? fresh.find(d=>Number(d.id)===Number(returnedId)) : null;
+        // Never attach a version to a row without confirming dossier/title/status.
+        const validReturned=byReturnedId && Number(byReturnedId.Signalement)===dossier
+          && byReturnedId.Titre===titre && byReturnedId.Statut==='Brouillon';
         const matching=fresh.filter(d=>Number(d.Signalement)===dossier && d.Titre===titre && d.Statut==='Brouillon' && Number(d.Version_Courante||0)===0);
-        const selected=byReturnedId || (matching.length===1?matching[0]:null);
-        if(!selected)throw new Error('Document créé mais non identifiable de façon certaine (résultat Grist : '+JSON.stringify(created).slice(0,160)+'). Aucune nouvelle création automatique : contrôler DOCUMENTS.');
+        const selected=validReturned ? byReturnedId : (matching.length===1?matching[0]:null);
+        if(!selected)throw new Error('Document créé (identifiant Grist : '+String(returnedId)+') mais non vérifiable en lecture. Aucune nouvelle création automatique : contrôler DOCUMENTS et les ACL +R.');
         docId=Number(selected.id);
       }
     }
