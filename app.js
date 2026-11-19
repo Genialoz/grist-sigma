@@ -656,6 +656,9 @@ async function saveDocument(validate=false){
         if(!confirm('Un brouillon sans version existe déjà pour ce dossier et ce titre (ID '+candidates[0].id+'). Compléter ce document existant sans en créer un autre ?'))return;
         docId=Number(candidates[0].id);
       }else{
+        // Une lecture filtrée par ACL ne prouve jamais l'absence de brouillon.
+        // En TEST, demander confirmation explicite avant toute nouvelle création.
+        if(!confirm('Aucun brouillon incomplet visible pour ce dossier et ce titre. ATTENTION : les ACL peuvent masquer un brouillon déjà créé. Vérifiez DOCUMENTS avec le propriétaire avant de créer une nouvelle ligne. Continuer uniquement si vous avez confirmé son absence ?'))return;
         operation='création DOCUMENTS (+C)';
         const created=await grist.docApi.applyUserActions([['AddRecord','DOCUMENTS',null,{Signalement:dossier,Titre:titre,Type_Document:type,Statut:'Brouillon',Date_Creation:now,Date_Validation:null,Version_Courante:0}]]);
         // Grist renvoie généralement [id] pour AddRecord. Ne pas présumer de la forme du résultat.
