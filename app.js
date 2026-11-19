@@ -1,4 +1,4 @@
-/* SIGMA V1.0.20 TEST — activation explicite des consultations ; ACL Grist obligatoires. */
+/* SIGMA V1.0.21 TEST — activation explicite des consultations ; ACL Grist obligatoires. */
 'use strict';
 const TABLES = ['SIGNALEMENTS','ACADEMIES','STATUTS','MOTIFS','SIGNALEMENT_MOTIFS','UTILISATEURS','HABILITATIONS','PERSONNES','SIGNALEMENT_PERSONNES','ACTIONS','HISTORIQUE_STATUTS','HISTORIQUE_ARCHIVAGE','RENDEZ_VOUS','PARTICIPANTS_RDV','DOCUMENTS','VERSIONS_DOCUMENTS','COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS','HISTORIQUE_PARTAGES','CONSULTATIONS_INVITEES','MODELES_COURRIELS'];
 const state = {data:{},view:'dashboard',busy:false,dossierSuivi:null,agendaDate:new Date(),agendaMode:'semaine',rdvDossier:null,archiveYear:null,returnFromDossier:'dossiers'};
@@ -747,7 +747,7 @@ document.addEventListener('click',async e=>{
  const share=byId('PARTAGES_DOCUMENTS',Number(copy.Partage_ID));
  const version=share&&byId('VERSIONS_DOCUMENTS',Number(share.Version));
  const expires=Number(copy.Expiration);
- if(!share||Number(share.Document)!==Number(doc.id)||share.Statut!=='Vérifié'||!version||Number(version.Document)!==Number(doc.id)||version.Statut!=='Validé'||doc.Statut!=='Validé'||Number(copy.Version_Numero)!==Number(version.Numero_Version)||String(copy.Email||'').trim().toLowerCase()!==String(share.Email||'').trim().toLowerCase()||!['lecture','commentaire'].includes(copy.Droit)||copy.Droit!==share.Droit||!expires||expires+86400<=Date.now()/1000)return notify('Activation refusée : partage, version, destinataire, droit ou échéance incohérent.');
+ if(!share||Number(share.Document)!==Number(doc.id)||share.Statut!=='Vérifié'||!version||Number(version.Document)!==Number(doc.id)||version.Statut!=='Validé'||Number(copy.Version_Numero)!==Number(version.Numero_Version)||String(copy.Email||'').trim().toLowerCase()!==String(share.Email||'').trim().toLowerCase()||!['lecture','commentaire'].includes(copy.Droit)||copy.Droit!==share.Droit||!expires||expires+86400<=Date.now()/1000)return notify('Activation refusée : partage, version, destinataire, droit ou échéance incohérent.');
  if(!confirm(`Activer la consultation pour ${copy.Email} (version ${copy.Version_Numero}) ? L’invité pourra accéder à sa copie selon les ACL Grist. Aucun courriel ne sera envoyé.`))return;
  button.disabled=true;
  try{
