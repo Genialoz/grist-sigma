@@ -1,4 +1,4 @@
-/* SIGMA V1.0.19 TEST — décisions append-only (activation sous ACL sécurisées).
+/* SIGMA V1.0.22 TEST — diagnostic des boutons de décision (activation sous ACL sécurisées).
    Les ACL Grist sont indispensables ; l'expiration JS ne sécurise pas l'API. */
 'use strict';
 (() => {
@@ -300,6 +300,16 @@
           row?.Statut === 'Actif' && dateSeconds(row.Expiration) > Date.now()/1000;
         if (eligible) activeValidation = validation;
         setDecisionAvailability(Boolean(DECISION_WRITES_ENABLED && eligible));
+        if (!eligible) {
+          const reasons = [];
+          if (result.hasDecision) reasons.push('une décision figure déjà dans l’historique');
+          if (String(validation.Statut || '') !== 'En attente') reasons.push('statut de la demande : ' + String(validation.Statut || 'vide'));
+          if (row?.Statut !== 'Actif') reasons.push('consultation non active');
+          if (!(dateSeconds(row?.Expiration) > Date.now()/1000)) reasons.push('date d’expiration dépassée ou illisible');
+          decisionNotice.textContent = 'Actions indisponibles : ' + reasons.join(' ; ') + '.';
+        } else {
+          decisionNotice.textContent = '';
+        }
       } catch (err) {
         if (ticket !== validationRevision || String(selectedId) !== String(consultationId)) return;
         state.textContent = 'Historique de validation indisponible : impossible de confirmer une décision.';
