@@ -1,4 +1,4 @@
-/* SIGMA V1.0.25.2 TEST — récupération sécurisée des brouillons partiels ; ACL Grist obligatoires. */
+/* SIGMA V1.0.25.5 TEST — récupération sécurisée des brouillons partiels ; ACL Grist obligatoires. */
 'use strict';
 const TABLES = ['SIGNALEMENTS','ACADEMIES','STATUTS','MOTIFS','SIGNALEMENT_MOTIFS','UTILISATEURS','HABILITATIONS','PERSONNES','SIGNALEMENT_PERSONNES','ACTIONS','HISTORIQUE_STATUTS','HISTORIQUE_ARCHIVAGE','RENDEZ_VOUS','PARTICIPANTS_RDV','DOCUMENTS','VERSIONS_DOCUMENTS','COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS','HISTORIQUE_PARTAGES','CONSULTATIONS_INVITEES','MODELES_COURRIELS'];
 const state = {unavailableTables:new Set(),data:{},view:'dashboard',busy:false,dossierSuivi:null,agendaDate:new Date(),agendaMode:'semaine',rdvDossier:null,archiveYear:null,returnFromDossier:'dossiers'};
@@ -682,20 +682,36 @@ async function saveDocument(validate=false){
         docId=Number(selected.id);
       }
     }
-    // Ne jamais écraser une version : chaque enregistrement crée une nouvelle ligne.
-    operation='relecture VERSIONS_DOCUMENTS';
+    // Deux opérations séparées : un refus +C ne doit pas être confondu avec un refus +U.
+    // En cas d'échec de +U, la version créée est conservée et une reprise explicite est proposée.
+    operation='relecture VERSIONS_DOCUMENTS avant écriture';
     const freshVers=rowsFrom(await grist.docApi.fetchTable('VERSIONS_DOCUMENTS'));
-    const next=Math.max(0,...freshVers.filter(v=>Number(v.Document)===Number(docId)).map(v=>Number(v.Numero_Version)||0))+1;
-    operation='création VERSIONS_DOCUMENTS (+C) et mise à jour DOCUMENTS (+U)';
-    await grist.docApi.applyUserActions([
-      ['AddRecord','VERSIONS_DOCUMENTS',null,{Document:Number(docId),Numero_Version:next,Contenu:content,Statut:status,Date_Version:now,Auteur:author}],
-      ['UpdateRecord','DOCUMENTS',Number(docId),{Signalement:dossier,Titre:titre,Type_Document:type,Statut:status,Version_Courante:next,Date_Validation:validate?now:null}]
-    ]);
-    operation='vérification VERSIONS_DOCUMENTS';
-    const verify=rowsFrom(await grist.docApi.fetchTable('VERSIONS_DOCUMENTS'));
-    if(!verify.some(v=>Number(v.Document)===Number(docId)&&Number(v.Numero_Version)===next&&v.Contenu===content&&v.Statut===status))throw new Error('Version non retrouvée après écriture ; contrôle manuel nécessaire.');
+    const docVers=freshVers.filter(v=>Number(v.Document)===Number(docId));
+    const currentVersion=Number(byId('DOCUMENTS',docId)?.Version_Courante||0);
+    const pending=docVers.filter(v=>Number(v.Numero_Version)>currentVersion);
+    if(pending.length>1)throw new Error('Plusieurs versions non synchronisées détectées pour ce document. Aucune écriture ; contrôle manuel requis.');
+    let next;
+    if(pending.length===1){
+      const p=pending[0];
+      if(p.Contenu!==content||p.Statut!==status)throw new Error('Une version non synchronisée existe (version '+p.Numero_Version+'), avec un contenu ou statut différent. Aucune écriture : contrôler VERSIONS_DOCUMENTS.');
+      if(!confirm('Une version '+p.Numero_Version+' existe déjà mais le document n’est pas synchronisé. Reprendre uniquement la mise à jour de DOCUMENTS, sans recréer de version ?'))return;
+      next=Number(p.Numero_Version);
+    }else{
+      next=Math.max(0,...docVers.map(v=>Number(v.Numero_Version)||0))+1;
+      operation='création VERSIONS_DOCUMENTS (+C)';
+      await grist.docApi.applyUserActions([['AddRecord','VERSIONS_DOCUMENTS',null,{Document:Number(docId),Numero_Version:next,Contenu:content,Statut:status,Date_Version:now,Auteur:author}]]);
+      operation='vérification de la version créée (lecture +R)';
+      const afterCreate=rowsFrom(await grist.docApi.fetchTable('VERSIONS_DOCUMENTS'));
+      if(!afterCreate.some(v=>Number(v.Document)===Number(docId)&&Number(v.Numero_Version)===next&&v.Contenu===content&&v.Statut===status))throw new Error('La création a été envoyée mais la version n’est pas visible en lecture. Ne pas réessayer sans contrôler la table avec le propriétaire.');
+    }
+    operation='mise à jour DOCUMENTS (+U) — version déjà créée';
+    await grist.docApi.applyUserActions([['UpdateRecord','DOCUMENTS',Number(docId),{Signalement:dossier,Titre:titre,Type_Document:type,Statut:status,Version_Courante:next,Date_Validation:validate?now:null}]]);
+    operation='vérification DOCUMENTS (+R)';
+    const afterUpdate=rowsFrom(await grist.docApi.fetchTable('DOCUMENTS'));
+    const updated=afterUpdate.find(d=>Number(d.id)===Number(docId));
+    if(!updated||Number(updated.Version_Courante)!==next||updated.Statut!==status)throw new Error('Mise à jour envoyée mais état final non vérifiable. Contrôler DOCUMENTS et VERSIONS_DOCUMENTS avant de recommencer.');
     closeDocument();await refresh();notify(`Document ${status.toLowerCase()} — version ${next} enregistrée et vérifiée.`,true);
-  }catch(e){notify('Échec à l’étape « '+operation+' » : '+e.message+'. Vérifie une éventuelle écriture partielle avant de réessayer.');}
+  }catch(e){notify('Échec à l’étape « '+operation+' » : '+e.message+'. Si la version a été créée, ne pas relancer sans contrôler les deux tables.');}
   finally{state.busy=false;$('document-save').disabled=false;$('document-validate').disabled=false;}
 }
 async function startRevision(){
