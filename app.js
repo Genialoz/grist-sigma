@@ -1,4 +1,4 @@
-/* SIGMA V1.0.21 TEST — activation explicite des consultations ; ACL Grist obligatoires. */
+/* SIGMA V1.0.23 TEST — activation explicite des consultations ; ACL Grist obligatoires. */
 'use strict';
 const TABLES = ['SIGNALEMENTS','ACADEMIES','STATUTS','MOTIFS','SIGNALEMENT_MOTIFS','UTILISATEURS','HABILITATIONS','PERSONNES','SIGNALEMENT_PERSONNES','ACTIONS','HISTORIQUE_STATUTS','HISTORIQUE_ARCHIVAGE','RENDEZ_VOUS','PARTICIPANTS_RDV','DOCUMENTS','VERSIONS_DOCUMENTS','COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS','HISTORIQUE_PARTAGES','CONSULTATIONS_INVITEES','MODELES_COURRIELS'];
 const state = {data:{},view:'dashboard',busy:false,dossierSuivi:null,agendaDate:new Date(),agendaMode:'semaine',rdvDossier:null,archiveYear:null,returnFromDossier:'dossiers'};
@@ -204,7 +204,23 @@ function sigmaLoadArchiveFilters(){
  if(select.disabled)select.value='';
 }
 async function refresh(){try{notify('');for(const name of TABLES)state.data[name]=rowsFrom(await grist.docApi.fetchTable(name));loadSelects();sigmaLoadArchiveFilters();fillRdvSelects();fillDocumentSelects();render();}catch(e){notify('Chargement impossible : '+e.message+'. Vérifiez les tables et les autorisations du widget.');}}
-function openForm(id){$('record-form').reset();$('record-id').value=id||'';const rec=id?byId('SIGNALEMENTS',id):null;$('modal-title').textContent=rec?'Modifier le signalement':'Nouveau signalement';$('numero').value=rec?.Numero||'(généré à la création)';$('date').value=rec?.Date_Reception?new Date(Number(rec.Date_Reception)*1000).toISOString().slice(0,10):new Date().toISOString().slice(0,10);$('objet').value=rec?.Objet||'';$('academie').value=rec?.Academie||'';$('statut').value=rec?.Statut||'';$('referent').value=rec?.Referent||'';$('resume').value=rec?.Resume||'';const motifs=new Set(rec?idsFor(rec.id):[]);for(const cb of document.querySelectorAll('input[name="motif"]'))cb.checked=motifs.has(Number(cb.value));loadAssignments(rec?.id);$('modal').classList.remove('hidden');$('objet').focus();}
+function sigmaFillPrincipal(rec){
+ const select=$('responsable-principal');
+ const current=Number(rec?.Responsable_Principal)||0;
+ const eligible=activeUsers().filter(u=>assignedTo(rec?.id).some(h=>Number(h.Utilisateur)===Number(u.id)&&h.Droit==='edition'));
+ const selected=byId('UTILISATEURS',current);
+ if(selected&&!eligible.some(u=>u.id===selected.id))eligible.unshift(selected);
+ select.innerHTML='<option value="">À désigner</option>'+eligible.map(u=>`<option value="${Number(u.id)}">${esc(u.Libelle||u.Email)}</option>`).join('');
+ select.value=current?String(current):'';
+}
+function sigmaRefreshPrincipalChoices(){
+ const select=$('responsable-principal');const previous=select.value;
+ const allowed=new Set([...document.querySelectorAll('.assign-check:checked')].filter(c=>document.querySelector(`.assign-right[data-user="${c.dataset.user}"]`)?.value==='edition').map(c=>Number(c.dataset.user)));
+ select.innerHTML='<option value="">À désigner</option>'+activeUsers().filter(u=>allowed.has(Number(u.id))).map(u=>`<option value="${Number(u.id)}">${esc(u.Libelle||u.Email)}</option>`).join('');
+ select.value=allowed.has(Number(previous))?previous:'';
+}
+document.getElementById('assignments').addEventListener('change',sigmaRefreshPrincipalChoices);
+function openForm(id){$('record-form').reset();$('record-id').value=id||'';const rec=id?byId('SIGNALEMENTS',id):null;$('modal-title').textContent=rec?'Modifier le signalement':'Nouveau signalement';$('numero').value=rec?.Numero||'(généré à la création)';$('date').value=rec?.Date_Reception?new Date(Number(rec.Date_Reception)*1000).toISOString().slice(0,10):new Date().toISOString().slice(0,10);$('objet').value=rec?.Objet||'';$('academie').value=rec?.Academie||'';$('statut').value=rec?.Statut||'';$('referent').value=rec?.Referent||'';$('resume').value=rec?.Resume||'';const motifs=new Set(rec?idsFor(rec.id):[]);for(const cb of document.querySelectorAll('input[name="motif"]'))cb.checked=motifs.has(Number(cb.value));loadAssignments(rec?.id);sigmaFillPrincipal(rec);$('modal').classList.remove('hidden');$('objet').focus();}
 function closeForm(){$('modal').classList.add('hidden');}
 // V0.5.1 : vérification explicite des écritures dans HISTORIQUE_STATUTS.
 // Le journal concerne les opérations du formulaire SIGMA, pas les modifications faites dans les tables Grist.
@@ -234,6 +250,13 @@ async function save(ev) {
   if (!fields.Objet || !fields.Academie || !fields.Statut || !Number.isFinite(ts)) {
     notify('Complétez les champs obligatoires.'); return;
   }
+  const principal=Number($('responsable-principal').value)||0;
+  const selectedCheck=principal&&document.querySelector(`.assign-check[data-user="${principal}"]`);
+  const selectedRight=principal&&document.querySelector(`.assign-right[data-user="${principal}"]`);
+  if(principal&&(!selectedCheck?.checked||selectedRight?.value!=='edition'||!activeUsers().some(u=>Number(u.id)===principal))){notify('Le responsable principal doit être un utilisateur actif, habilité en modification sur ce dossier.');return;}
+  // La colonne doit être créée au préalable dans Grist ; aucun changement implicite de schéma.
+  if(principal)fields.Responsable_Principal=principal;
+  else if(id)fields.Responsable_Principal=null;
   state.busy = true;
   $('save').disabled = true;
   try {
@@ -378,6 +401,7 @@ function renderSuivi(){const d=byId('SIGNALEMENTS',state.dossierSuivi);if(!d){$(
   ['Académie',esc(byId('ACADEMIES',d.Academie)?.Nom||'Non renseignée')],
   ['Date de réception',esc(dateText(d.Date_Reception))],
   ['Motifs',esc(namesFor(d.id).join(' · ')||'Non renseignés')],
+  ['Responsable principal',esc(d.Responsable_Principal?labelUser(d.Responsable_Principal):'À désigner')],
   ['Référents affectés',esc(members.join(' · ')||'Aucun référent affecté')],
   ['Résumé',esc(d.Resume||'Aucun résumé renseigné')],
  ];
