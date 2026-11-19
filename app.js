@@ -234,8 +234,10 @@ async function refresh(){
     denied.push({name,message:err?.message||String(err)});
    }
   }
-  const optional=new Set([...OPTIONAL_PERSON_TABLES,...OPTIONAL_ACTION_TABLES]);
-  const critical=denied.filter(x=>!optional.has(x.name));
+  // Le circuit des comptes rendus ne dépend pas des dix tables secondaires.
+  // On ne débloque JAMAIS les écritures si les tables des dossiers/documents/versions sont inaccessibles.
+  const criticalTables=new Set(['SIGNALEMENTS','UTILISATEURS','HABILITATIONS','DOCUMENTS','VERSIONS_DOCUMENTS']);
+  const critical=denied.filter(x=>criticalTables.has(x.name));
   if(critical.length){
    // Fail closed : ne pas rendre un dossier partiellement chargé comme complet.
    notify('Chargement incomplet : '+denied.length+' table(s) inaccessibles : '+denied.map(x=>x.name+' ('+x.message+')').join(' ; ')+'. Corrigez les ACL avant de poursuivre les écritures.');
@@ -243,7 +245,7 @@ async function refresh(){
    return;
   }
   loadSelects();sigmaLoadArchiveFilters();fillRdvSelects();fillDocumentSelects();render();sigmaUpdatePeopleAvailability();sigmaUpdateActionAvailability();
-  if(denied.length)notify('Mode dégradé : '+denied.map(x=>x.name).join(', ')+'. Fonctions concernées indisponibles.');
+  if(denied.length)notify('Mode dégradé : '+denied.map(x=>x.name).join(', ')+'. Les données de ces tables sont indisponibles. Ne pas utiliser les fonctions qui en dépendent ; les ACL restent appliquées.');
  }catch(e){
   sigmaUpdatePeopleAvailability();sigmaUpdateActionAvailability();
   notify('Chargement impossible : '+(e?.message||String(e)));
@@ -626,6 +628,7 @@ function openDocument(id=null,dossier=null){
 }
 function closeDocument(){$('document-modal').classList.add('hidden');}
 async function saveDocument(validate=false){
+  if(['SIGNALEMENTS','DOCUMENTS','VERSIONS_DOCUMENTS'].some(t=>state.unavailableTables.has(t)))return notify('Compte rendu indisponible : accès refusé à une table indispensable. Aucune écriture effectuée.');
   if(state.busy)return;
   const doc=currentDoc(),dossier=Number($('document-dossier').value);
   const titre=$('document-name').value.trim(),content=$('document-content').value.trim(),type=$('document-type').value,author=$('document-author').value.trim()||'Widget SIGMA (non certifié)';
@@ -652,7 +655,7 @@ async function saveDocument(validate=false){
     const verify=rowsFrom(await grist.docApi.fetchTable('VERSIONS_DOCUMENTS'));
     if(!verify.some(v=>Number(v.Document)===Number(docId)&&Number(v.Numero_Version)===next&&v.Contenu===content&&v.Statut===status))throw new Error('Version non retrouvée après écriture ; contrôle manuel nécessaire.');
     closeDocument();await refresh();notify(`Document ${status.toLowerCase()} — version ${next} enregistrée et vérifiée.`,true);
-  }catch(e){notify('Erreur ou écriture partielle du compte rendu : '+e.message+' Vérifie DOCUMENTS et VERSIONS_DOCUMENTS avant toute nouvelle tentative.');}
+  }catch(e){notify('Enregistrement ou validation refusé(e) : '+e.message+' Contrôle les règles +C/+U des tables DOCUMENTS et VERSIONS_DOCUMENTS, et vérifie une éventuelle écriture partielle avant de réessayer.');}
   finally{state.busy=false;$('document-save').disabled=false;$('document-validate').disabled=false;}
 }
 async function startRevision(){
