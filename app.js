@@ -1,4 +1,4 @@
-/* SIGMA V1.0.24 TEST — chargement dégradé contrôlé des personnes ; ACL Grist obligatoires. */
+/* SIGMA V1.0.24 TEST — chargement dégradé PERSONNES et ACTIONS ; ACL Grist obligatoires. */
 'use strict';
 const TABLES = ['SIGNALEMENTS','ACADEMIES','STATUTS','MOTIFS','SIGNALEMENT_MOTIFS','UTILISATEURS','HABILITATIONS','PERSONNES','SIGNALEMENT_PERSONNES','ACTIONS','HISTORIQUE_STATUTS','HISTORIQUE_ARCHIVAGE','RENDEZ_VOUS','PARTICIPANTS_RDV','DOCUMENTS','VERSIONS_DOCUMENTS','COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS','HISTORIQUE_PARTAGES','CONSULTATIONS_INVITEES','MODELES_COURRIELS'];
 const state = {unavailableTables:new Set(),data:{},view:'dashboard',busy:false,dossierSuivi:null,agendaDate:new Date(),agendaMode:'semaine',rdvDossier:null,archiveYear:null,returnFromDossier:'dossiers'};
@@ -206,6 +206,13 @@ function sigmaLoadArchiveFilters(){
 // Les données PERSONNES sont sensibles : un refus ACL ne doit jamais être contourné.
 // En mode dégradé, ne pas interpréter une table inaccessible comme une table réellement vide.
 const OPTIONAL_PERSON_TABLES = new Set(['PERSONNES','SIGNALEMENT_PERSONNES']);
+const OPTIONAL_ACTION_TABLES = new Set(['ACTIONS']);
+function sigmaActionsAvailable(){return !state.unavailableTables.has('ACTIONS');}
+function sigmaUpdateActionAvailability(){
+ const available=sigmaActionsAvailable();
+ const form=$('action-form');if(form){for(const control of form.querySelectorAll('input,select,textarea,button')){control.disabled=!available;control.title=available?'':'Actions indisponibles : lecture Grist refusée';}}
+ const tbody=$('suivi-actions');if(tbody&&!available)tbody.innerHTML='<tr><td colspan="6">Actions non chargées : accès Grist refusé. Aucun historique affiché.</td></tr>';
+}
 function sigmaPeopleAvailable(){return !state.unavailableTables.has('PERSONNES')&&!state.unavailableTables.has('SIGNALEMENT_PERSONNES');}
 function sigmaUpdatePeopleAvailability(){
  const available=sigmaPeopleAvailable();
@@ -220,13 +227,13 @@ async function refresh(){
    try{state.data[name]=rowsFrom(await grist.docApi.fetchTable(name));}
    catch(err){
     state.data[name]=[];
-    if(OPTIONAL_PERSON_TABLES.has(name)){state.unavailableTables.add(name);continue;}
+    if(OPTIONAL_PERSON_TABLES.has(name)||OPTIONAL_ACTION_TABLES.has(name)){state.unavailableTables.add(name);continue;}
     throw new Error('Lecture de la table '+name+' refusée : '+(err?.message||String(err)));
    }
   }
-  loadSelects();sigmaLoadArchiveFilters();fillRdvSelects();fillDocumentSelects();render();sigmaUpdatePeopleAvailability();
-  if(state.unavailableTables.size)notify('Mode dégradé : lecture refusée pour '+[...state.unavailableTables].join(', ')+'. La gestion des personnes est désactivée ; les autres fonctions restent soumises aux ACL Grist.');
- }catch(e){sigmaUpdatePeopleAvailability();notify('Chargement impossible : '+e.message+'. Vérifiez les tables et les autorisations du widget.');}
+  loadSelects();sigmaLoadArchiveFilters();fillRdvSelects();fillDocumentSelects();render();sigmaUpdatePeopleAvailability();sigmaUpdateActionAvailability();
+  if(state.unavailableTables.size)notify('Mode dégradé : lecture refusée pour '+[...state.unavailableTables].join(', ')+'. Les fonctions correspondantes sont désactivées ; les autres restent soumises aux ACL Grist.');
+ }catch(e){sigmaUpdatePeopleAvailability();sigmaUpdateActionAvailability();notify('Chargement impossible : '+e.message+'. Vérifiez les tables et les autorisations du widget.');}
 }
 function sigmaFillPrincipal(rec){
  const select=$('responsable-principal');
@@ -437,7 +444,7 @@ function renderSuivi(){const d=byId('SIGNALEMENTS',state.dossierSuivi);if(!d){$(
  renderDossierRdv();
  renderDossierDocuments();
  $('suivi-existing-person').innerHTML='<option value="">Choisir une personne existante…</option>'+tab('PERSONNES').map(x=>`<option value="${x.id}">${esc(x.Libelle)}</option>`).join('');
- sigmaUpdatePeopleAvailability();
+ sigmaUpdatePeopleAvailability();sigmaUpdateActionAvailability();
 }
 function openPersonForm(){if(!sigmaPeopleAvailable())return notify('Gestion des personnes indisponible : lecture Grist refusée.');$('person-form').reset();$('person-role').innerHTML=roleOptions.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');$('person-modal').classList.remove('hidden');}
 function closePersonForm(){$('person-modal').classList.add('hidden');}
@@ -448,8 +455,9 @@ async function savePerson(e){e.preventDefault();if(!sigmaPeopleAvailable())retur
  }catch(err){notify('Erreur ou enregistrement partiel : '+err.message);}finally{state.busy=false;$('person-save').disabled=false;}}
 async function linkPerson(e){e.preventDefault();if(!sigmaPeopleAvailable())return notify('Gestion des personnes indisponible : lecture Grist refusée.');if(state.busy)return;const person=Number($('suivi-existing-person').value),dossier=Number(state.dossierSuivi),role=$('suivi-existing-role').value;if(!person||!role)return notify('Choisis une personne et un rôle.');if(dossierLinks().some(l=>Number(l.Personne)===person&&l.Role===role))return notify('Cette association existe déjà.');state.busy=true;try{await grist.docApi.applyUserActions([['AddRecord','SIGNALEMENT_PERSONNES',null,{Signalement:dossier,Personne:person,Role:role}]]);await refresh();notify('Personne associée au dossier.',true);}catch(err){notify('Association impossible : '+err.message);}finally{state.busy=false;}}
 async function detachPerson(id){if(!sigmaPeopleAvailable())return notify('Gestion des personnes indisponible : lecture Grist refusée.');if(!confirm('Retirer cette association du dossier ? La fiche PERSONNES sera conservée.'))return;try{await grist.docApi.applyUserActions([['RemoveRecord','SIGNALEMENT_PERSONNES',id]]);await refresh();notify('Association retirée.',true);}catch(err){notify('Retrait impossible : '+err.message);}}
-async function saveAction(e){e.preventDefault();if(state.busy)return;const dossier=Number(state.dossierSuivi);const desc=$('action-description').value.trim();const date=$('action-date').value;const ts=Date.parse(date+'T00:00:00Z')/1000;if(!desc||!Number.isFinite(ts))return notify('Renseigne une date et une description.');const deadline=$('action-deadline').value;const due=deadline?Date.parse(deadline+'T00:00:00Z')/1000:null;if(deadline&&!Number.isFinite(due))return notify('Échéance invalide.');const fields={Signalement:dossier,Date_Action:ts,Type_Action:$('action-type').value,Description:desc,Etat:$('action-etat').value};if(deadline)fields.Date_Echeance=due;state.busy=true;$('action-save').disabled=true;try{await grist.docApi.applyUserActions([['AddRecord','ACTIONS',null,fields]]);$('action-form').reset();$('action-date').value=new Date().toISOString().slice(0,10);await refresh();notify('Action ajoutée au suivi.',true);}catch(err){notify('Enregistrement de l’action impossible : '+err.message);}finally{state.busy=false;$('action-save').disabled=false;}}
+async function saveAction(e){e.preventDefault();if(!sigmaActionsAvailable())return notify('Actions indisponibles : lecture Grist refusée.');if(state.busy)return;const dossier=Number(state.dossierSuivi);const desc=$('action-description').value.trim();const date=$('action-date').value;const ts=Date.parse(date+'T00:00:00Z')/1000;if(!desc||!Number.isFinite(ts))return notify('Renseigne une date et une description.');const deadline=$('action-deadline').value;const due=deadline?Date.parse(deadline+'T00:00:00Z')/1000:null;if(deadline&&!Number.isFinite(due))return notify('Échéance invalide.');const fields={Signalement:dossier,Date_Action:ts,Type_Action:$('action-type').value,Description:desc,Etat:$('action-etat').value};if(deadline)fields.Date_Echeance=due;state.busy=true;$('action-save').disabled=true;try{await grist.docApi.applyUserActions([['AddRecord','ACTIONS',null,fields]]);$('action-form').reset();$('action-date').value=new Date().toISOString().slice(0,10);await refresh();notify('Action ajoutée au suivi.',true);}catch(err){notify('Enregistrement de l’action impossible : '+err.message);}finally{state.busy=false;$('action-save').disabled=false;}}
 async function sigmaMarkTaskDone(id){
+ if(!sigmaActionsAvailable())return notify('Actions indisponibles : lecture Grist refusée.');
  const action=byId('ACTIONS',id);
  if(!action||!byId('SIGNALEMENTS',action.Signalement))return notify('Action inaccessible.');
  if(sigmaTaskComplete(action))return notify('Action déjà terminée.');
