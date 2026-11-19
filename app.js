@@ -636,26 +636,35 @@ async function saveDocument(validate=false){
   if(doc&&doc.Statut==='Validé')return notify('Le document est validé. Utilise « Nouvelle révision » pour créer un brouillon.');
   if(content.length>30000)return notify('Le texte dépasse 30 000 caractères.');
   const now=Math.floor(Date.now()/1000),status=validate?'Validé':'Brouillon';
+  const dossierRecord=byId('SIGNALEMENTS',dossier);
+  const editors=String(dossierRecord?.ACL_Editeurs||'');
+  let operation='initialisation';
+  if(!editors.trim())return notify('Enregistrement impossible : ACL_Editeurs est vide pour ce dossier. Vérifie les habilitations et le calcul de la colonne dans SIGNALEMENTS.');
   state.busy=true;$('document-save').disabled=true;$('document-validate').disabled=true;
   try{
     let docId=doc?.id;
     if(!docId){
+      operation='création DOCUMENTS (+C)';
       await grist.docApi.applyUserActions([['AddRecord','DOCUMENTS',null,{Signalement:dossier,Titre:titre,Type_Document:type,Statut:'Brouillon',Date_Creation:now,Date_Validation:null,Version_Courante:0}]]);
+      operation='relecture DOCUMENTS';
       const fresh=rowsFrom(await grist.docApi.fetchTable('DOCUMENTS'));
       docId=fresh.filter(d=>Number(d.Signalement)===dossier&&d.Titre===titre&&Number(d.Date_Creation)===now).sort((a,b)=>b.id-a.id)[0]?.id;
       if(!docId)throw new Error('Métadonnées enregistrées, mais identifiant introuvable. Vérifier DOCUMENTS avant de recommencer.');
     }
     // Ne jamais écraser une version : chaque enregistrement crée une nouvelle ligne.
+    operation='relecture VERSIONS_DOCUMENTS';
     const freshVers=rowsFrom(await grist.docApi.fetchTable('VERSIONS_DOCUMENTS'));
     const next=Math.max(0,...freshVers.filter(v=>Number(v.Document)===Number(docId)).map(v=>Number(v.Numero_Version)||0))+1;
+    operation='création VERSIONS_DOCUMENTS (+C) et mise à jour DOCUMENTS (+U)';
     await grist.docApi.applyUserActions([
       ['AddRecord','VERSIONS_DOCUMENTS',null,{Document:Number(docId),Numero_Version:next,Contenu:content,Statut:status,Date_Version:now,Auteur:author}],
       ['UpdateRecord','DOCUMENTS',Number(docId),{Signalement:dossier,Titre:titre,Type_Document:type,Statut:status,Version_Courante:next,Date_Validation:validate?now:null}]
     ]);
+    operation='vérification VERSIONS_DOCUMENTS';
     const verify=rowsFrom(await grist.docApi.fetchTable('VERSIONS_DOCUMENTS'));
     if(!verify.some(v=>Number(v.Document)===Number(docId)&&Number(v.Numero_Version)===next&&v.Contenu===content&&v.Statut===status))throw new Error('Version non retrouvée après écriture ; contrôle manuel nécessaire.');
     closeDocument();await refresh();notify(`Document ${status.toLowerCase()} — version ${next} enregistrée et vérifiée.`,true);
-  }catch(e){notify('Enregistrement ou validation refusé(e) : '+e.message+' Contrôle les règles +C/+U des tables DOCUMENTS et VERSIONS_DOCUMENTS, et vérifie une éventuelle écriture partielle avant de réessayer.');}
+  }catch(e){notify('Échec à l’étape « '+operation+' » : '+e.message+'. Vérifie une éventuelle écriture partielle avant de réessayer.');}
   finally{state.busy=false;$('document-save').disabled=false;$('document-validate').disabled=false;}
 }
 async function startRevision(){
