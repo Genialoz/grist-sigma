@@ -1,4 +1,4 @@
-/* SIGMA V1.0.18 TEST — circuit gestionnaire de validation externe ; ACL Grist obligatoires. */
+/* SIGMA V1.0.20 TEST — activation explicite des consultations ; ACL Grist obligatoires. */
 'use strict';
 const TABLES = ['SIGNALEMENTS','ACADEMIES','STATUTS','MOTIFS','SIGNALEMENT_MOTIFS','UTILISATEURS','HABILITATIONS','PERSONNES','SIGNALEMENT_PERSONNES','ACTIONS','HISTORIQUE_STATUTS','HISTORIQUE_ARCHIVAGE','RENDEZ_VOUS','PARTICIPANTS_RDV','DOCUMENTS','VERSIONS_DOCUMENTS','COMMENTAIRES_DOCUMENTS','PARTAGES_DOCUMENTS','HISTORIQUE_PARTAGES','CONSULTATIONS_INVITEES','MODELES_COURRIELS'];
 const state = {data:{},view:'dashboard',busy:false,dossierSuivi:null,agendaDate:new Date(),agendaMode:'semaine',rdvDossier:null,archiveYear:null,returnFromDossier:'dossiers'};
@@ -732,12 +732,32 @@ async function sigmaLoadExternalWorkflow(docId){
     <div class="sigma-recipient-body"><p class="muted">Copie #${Number(c.id)} · ${esc(c.Statut||'Statut inconnu')} · Partage #${Number(p?.id||c.Partage_ID)}</p>
     <section class="sigma-external-thread"><h4>Commentaires confidentiels (${messages.length})</h4>${messages.map(m=>`<p><strong>${esc(m.Auteur_Email||'Auteur')}</strong> · ${prettyDateTime(m.Date_Creation)}<br>${esc(m.Contenu)}</p>`).join('')||'<p class="muted">Aucun commentaire.</p>'}</section>
     <section><h4>Historique des décisions (${ev.length})</h4>${ev.map(e=>`<p>${esc(e.Type_Evenement)} · ${prettyDateTime(e.Date_Evenement)} — ${esc(e.Message||'')}</p>`).join('')||'<p class="muted">Aucune décision.</p>'}</section>
-    <div class="sigma-recipient-actions">${active&&!closed&&!request?`<button type="button" class="row-button" data-sigma-validation-create="${Number(c.id)}">Demander validation</button>`:''}${p?`<button type="button" class="row-button" data-sigma-share-focus="${Number(p.id)}">Voir le partage</button>`:''}</div>
+    <div class="sigma-recipient-actions">${c.Statut==='Préparé'&&!closed&&p?.Statut==='Vérifié'&&(!Number(c.Expiration)||Number(c.Expiration)+86400>Date.now()/1000)?`<button type="button" class="row-button" data-sigma-consultation-activate="${Number(c.id)}">Activer la consultation</button>`:''}${active&&!closed&&!request?`<button type="button" class="row-button" data-sigma-validation-create="${Number(c.id)}">Demander validation</button>`:''}${p?`<button type="button" class="row-button" data-sigma-share-focus="${Number(p.id)}">Voir le partage</button>`:''}</div>
     ${active?`<form class="sigma-external-reply" data-consultation="${Number(c.id)}"><label>Répondre à cet invité<textarea name="message" maxlength="3000" required rows="2" placeholder="Réponse visible uniquement par cet invité"></textarea></label><button type="submit" class="row-button">Répondre</button></form>`:''}
     </div></details>`;
   }).join('')||'<p class="muted">Aucun destinataire ne correspond à la recherche pour ce compte rendu.</p>';
  }catch(err){if(ticket===sigmaExternalLoadRevision){target.textContent='Accès aux validations ou commentaires refusé par Grist. Vérifiez les ACL du gestionnaire.';console.error('SIGMA suivi externe',err);}}
 }
+// Activation explicite : aucune permission n'est accordée par le widget.
+// L'ACL Grist doit limiter UpdateRecord aux gestionnaires habilités.
+document.addEventListener('click',async e=>{
+ const button=e.target.closest('[data-sigma-consultation-activate]');if(!button)return;
+ const id=Number(button.dataset.sigmaConsultationActivate),copy=byId('CONSULTATIONS_INVITEES',id),doc=currentDoc();
+ if(!doc||!copy||copy.Statut!=='Préparé')return notify('Consultation introuvable ou déjà activée.');
+ const share=byId('PARTAGES_DOCUMENTS',Number(copy.Partage_ID));
+ const version=share&&byId('VERSIONS_DOCUMENTS',Number(share.Version));
+ const expires=Number(copy.Expiration);
+ if(!share||Number(share.Document)!==Number(doc.id)||share.Statut!=='Vérifié'||!version||Number(version.Document)!==Number(doc.id)||version.Statut!=='Validé'||doc.Statut!=='Validé'||Number(copy.Version_Numero)!==Number(version.Numero_Version)||String(copy.Email||'').trim().toLowerCase()!==String(share.Email||'').trim().toLowerCase()||!['lecture','commentaire'].includes(copy.Droit)||copy.Droit!==share.Droit||!expires||expires+86400<=Date.now()/1000)return notify('Activation refusée : partage, version, destinataire, droit ou échéance incohérent.');
+ if(!confirm(`Activer la consultation pour ${copy.Email} (version ${copy.Version_Numero}) ? L’invité pourra accéder à sa copie selon les ACL Grist. Aucun courriel ne sera envoyé.`))return;
+ button.disabled=true;
+ try{
+  await grist.docApi.applyUserActions([['UpdateRecord','CONSULTATIONS_INVITEES',id,{Statut:'Actif'}]]);
+  await reloadDocumentCollaboration(doc.id);
+  const updated=byId('CONSULTATIONS_INVITEES',id);
+  if(updated?.Statut!=='Actif')throw Error('Activation non confirmée : vérifier la table avant de réessayer.');
+  notify('Consultation activée. Aucun courriel envoyé.',true);
+ }catch(err){notify('Activation non enregistrée : '+err.message);}finally{button.disabled=false;}
+});
 document.addEventListener('click',async e=>{
  const button=e.target.closest('[data-sigma-validation-create]');if(!button)return;
  const id=Number(button.dataset.sigmaValidationCreate),copy=byId('CONSULTATIONS_INVITEES',id),doc=currentDoc();
