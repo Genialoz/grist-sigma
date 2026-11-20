@@ -312,6 +312,7 @@ async function save(ev) {
     if(previous&&sigmaArchived(previous)&&!sigmaClosed({Statut:fields.Statut}))throw new Error('Un dossier archivé doit rester clôturé. Restaure-le avant de changer son statut.');
     const changed = !!id && Number(previous.Statut) !== Number(fields.Statut);
     let target = id;
+    let creationStage = id ? "modification du dossier" : "création du dossier";
     if (id) {
       const changes = [['UpdateRecord', 'SIGNALEMENTS', id, fields]];
       if (changed) {
@@ -329,13 +330,23 @@ async function save(ev) {
       fields.Numero = `VDH-${year}-${unique.slice(0, 8).toUpperCase()}`;
       fields.Annee_Ouverture = Number(year);
       fields.Date_Creation = Math.floor(Date.now()/1000);
-      await grist.docApi.applyUserActions([['AddRecord','SIGNALEMENTS',null,fields]]);
-      const all = rowsFrom(await grist.docApi.fetchTable('SIGNALEMENTS'));
-      target = all.find(r => r.Numero === fields.Numero)?.id;
-      if (!target) throw new Error('Dossier créé, mais identifiant introuvable : actualisez et vérifiez les motifs.');
+      const created = await grist.docApi.applyUserActions([['AddRecord','SIGNALEMENTS',null,fields]]);
+      // Ne pas relire SIGNALEMENTS ici : le nouveau dossier n'est pas encore
+      // visible tant que son habilitation n'a pas été créée.
+      const result = Array.isArray(created) ? created[0] : created;
+      const returned = result && typeof result === 'object' && Array.isArray(result.retValues)
+        ? result.retValues[0] : (typeof result === 'number' ? result : null);
+      target = Number(returned);
+      if (!Number.isSafeInteger(target) || target <= 0) {
+        throw new Error('Dossier potentiellement créé, mais Grist ne renvoie pas un identifiant exploitable. Vérifier SIGNALEMENTS avec le propriétaire avant tout nouvel essai.');
+      }
+      // L'habilitation doit précéder les lectures du dossier et de ses motifs.
+      creationStage = 'habilitation initiale (+C HABILITATIONS)';
+      await saveAssignments(target);
+      creationStage = 'enregistrement des motifs (+C SIGNALEMENT_MOTIFS)';
     }
-    const links = rowsFrom(await grist.docApi.fetchTable('SIGNALEMENT_MOTIFS'))
-      .filter(r => Number(r.Signalement) === Number(target));
+    const links = id ? rowsFrom(await grist.docApi.fetchTable('SIGNALEMENT_MOTIFS'))
+      .filter(r => Number(r.Signalement) === Number(target)) : [];
     const existing = new Set(links.map(r => Number(r.Motif)));
     const wanted = new Set(chosen);
     const actions = [
@@ -353,11 +364,16 @@ async function save(ev) {
       }]);
     }
     if (actions.length) await grist.docApi.applyUserActions(actions);
+    creationStage = 'vérification de l’historique';
     // Lire à nouveau la table : ne jamais annoncer un historique enregistré sans contrôle.
     if (!id || changed) {
       await verifyHistoryEntry(target, fields.Statut, previous?.Statut, !id);
     }
-    await saveAssignments(target);
+    if (id) {
+      creationStage = 'enregistrement des habilitations';
+      await saveAssignments(target);
+    }
+    creationStage = 'actualisation des données';
     closeForm();
     await refresh();
     notify(!id ? 'Dossier créé et historique vérifié dans Grist.' :
@@ -365,7 +381,7 @@ async function save(ev) {
       'Dossier enregistré (statut inchangé : aucune nouvelle ligne d’historique).', true);
     show('dossiers');
   } catch (e) {
-    notify('Échec ou enregistrement partiel : ' + e.message + ' Vérifiez les tables Grist avant de réessayer.');
+    notify('Échec ou enregistrement partiel (' + creationStage + ', dossier ' + (target || 'non confirmé') + ') : ' + e.message + ' Vérifiez les tables Grist avant de réessayer.');
   } finally {
     state.busy = false;
     $('save').disabled = false;
